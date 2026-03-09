@@ -91,6 +91,44 @@ async def on_member_join(member):
         return
 
 @bot.event
+async def on_guild_channel_create(channel):
+    """حماية من إنشاء رومات غير مصرح بها"""
+    # فحص آخر إجراء في السيرفر
+    await asyncio.sleep(1)
+    async for entry in channel.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_create):
+        if entry.target.id == channel.id:
+            creator = entry.user
+            # لو مو Admin
+            if not creator.guild_permissions.administrator and not creator.bot:
+                try:
+                    await channel.delete(reason="🚫 Unauthorized channel creation")
+                    await creator.ban(reason="🚫 Unauthorized channel creation - Security threat")
+                    print(f"🚫 Banned {creator.name} for creating unauthorized channel")
+                except:
+                    pass
+            break
+
+@bot.event
+async def on_guild_role_create(role):
+    """حماية من إنشاء رتب غير مصرح بها"""
+    # فحص آخر إجراء في السيرفر
+    await asyncio.sleep(1)
+    async for entry in role.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_create):
+        if entry.target.id == role.id:
+            creator = entry.user
+            # لو مو Admin ومو البوت نفسه
+            if not creator.guild_permissions.administrator and creator.id != bot.user.id:
+                try:
+                    await role.delete(reason="🚫 Unauthorized role creation")
+                    member = role.guild.get_member(creator.id)
+                    if member:
+                        await member.ban(reason="🚫 Unauthorized role creation - Security threat")
+                        print(f"🚫 Banned {creator.name} for creating unauthorized role")
+                except:
+                    pass
+            break
+
+@bot.event
 async def on_message(message):
     # تجاهل رسائل البوت
     if message.author.bot:
@@ -145,11 +183,11 @@ async def setup_verify(ctx):
     await ctx.message.delete()
     
     embed = discord.Embed(
-        title="🔐 Server Verification",
-        description="Click the **✅ Verify Me** button below to gain access to the rest of the server!\n\n🛡️ **Protection Active:**\n• Anti-Spam\n• Anti-Bot\n• Link Protection\n• New Account Monitoring",
+        title="🔐 توثيق السيرفر",
+        description="اضغط على زر **✅ توثيق** أدناه للحصول على صلاحية الوصول لبقية السيرفر!\n\n🛡️ **الحماية النشطة:**\n• حماية من السبام\n• منع البوتات\n• حماية من الروابط\n• مراقبة الحسابات الجديدة\n• حماية الرومات والرتب",
         color=0x00ff00
     )
-    embed.set_footer(text="MSA Verification & Protection System")
+    embed.set_footer(text="نظام التوثيق والحماية MSA")
     
     await ctx.send(embed=embed, view=VerifyButton())
     print(f"✅ Verification message created in #{ctx.channel.name}")
