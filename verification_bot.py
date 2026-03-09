@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 import os
+import sys
 from datetime import datetime, timedelta
 from collections import defaultdict
 import asyncio
@@ -81,10 +82,30 @@ async def on_ready():
 @bot.event
 async def on_member_join(member):
     """فحص الأعضاء الجدد عند الدخول"""
+    # لوق دخول السيرفر
+    embed = discord.Embed(
+        title="🟢 دخول السيرفر",
+        color=0x00ff00,
+        timestamp=datetime.now()
+    )
+    embed.add_field(name="👤 العضو", value=f"{member.mention} ({member.id})", inline=False)
+    embed.add_field(name="📅 تاريخ إنشاء الحساب", value=member.created_at.strftime("%Y-%m-%d %H:%M"), inline=True)
+    embed.add_field(name="📊 عدد الأعضاء", value=member.guild.member_count, inline=True)
+    await send_log(member.guild, embed)
+    
     # منع البوتات نهائياً
     if member.bot:
         try:
             await member.kick(reason="🚫 Bots are not allowed")
+            # لوق حماية - طرد بوت
+            embed = discord.Embed(
+                title="🛡️ لوق الحماية - طرد بوت",
+                color=0xff0000,
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="🤖 البوت", value=f"{member.name} ({member.id})", inline=False)
+            embed.add_field(name="📝 السبب", value="البوتات غير مسموح بها", inline=False)
+            await send_log(member.guild, embed)
             print(f"🚫 Kicked bot: {member.name}")
         except:
             pass
@@ -93,16 +114,36 @@ async def on_member_join(member):
 @bot.event
 async def on_guild_channel_create(channel):
     """حماية من إنشاء رومات غير مصرح بها"""
-    # فحص آخر إجراء في السيرفر
     await asyncio.sleep(1)
     async for entry in channel.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_create):
         if entry.target.id == channel.id:
             creator = entry.user
+            
+            # لوق إنشاء روم
+            embed = discord.Embed(
+                title="🟢 إنشاء روم",
+                color=0x00ff00,
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="👤 الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
+            embed.add_field(name="📝 اسم الروم", value=channel.name, inline=True)
+            embed.add_field(name="🆔 ID الروم", value=channel.id, inline=True)
+            await send_log(channel.guild, embed)
+            
             # لو مو Admin
             if not creator.guild_permissions.administrator and not creator.bot:
                 try:
                     await channel.delete(reason="🚫 Unauthorized channel creation")
                     await creator.ban(reason="🚫 Unauthorized channel creation - Security threat")
+                    # لوق حماية - باند
+                    embed = discord.Embed(
+                        title="🛡️ لوق الحماية - باند",
+                        color=0xff0000,
+                        timestamp=datetime.now()
+                    )
+                    embed.add_field(name="👤 الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
+                    embed.add_field(name="📝 السبب", value="إنشاء روم غير مصرح به", inline=False)
+                    await send_log(channel.guild, embed)
                     print(f"🚫 Banned {creator.name} for creating unauthorized channel")
                 except:
                     pass
@@ -111,11 +152,22 @@ async def on_guild_channel_create(channel):
 @bot.event
 async def on_guild_role_create(role):
     """حماية من إنشاء رتب غير مصرح بها"""
-    # فحص آخر إجراء في السيرفر
     await asyncio.sleep(1)
     async for entry in role.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_create):
         if entry.target.id == role.id:
             creator = entry.user
+            
+            # لوق إنشاء رول
+            embed = discord.Embed(
+                title="🟢 إنشاء رول",
+                color=0x00ff00,
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="👤 الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
+            embed.add_field(name="📝 اسم الرول", value=role.name, inline=True)
+            embed.add_field(name="🆔 ID الرول", value=role.id, inline=True)
+            await send_log(role.guild, embed)
+            
             # لو مو Admin ومو البوت نفسه
             if not creator.guild_permissions.administrator and creator.id != bot.user.id:
                 try:
@@ -123,6 +175,15 @@ async def on_guild_role_create(role):
                     member = role.guild.get_member(creator.id)
                     if member:
                         await member.ban(reason="🚫 Unauthorized role creation - Security threat")
+                        # لوق حماية - باند
+                        embed = discord.Embed(
+                            title="🛡️ لوق الحماية - باند",
+                            color=0xff0000,
+                            timestamp=datetime.now()
+                        )
+                        embed.add_field(name="👤 الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
+                        embed.add_field(name="📝 السبب", value="إنشاء رول غير مصرح به", inline=False)
+                        await send_log(role.guild, embed)
                         print(f"🚫 Banned {creator.name} for creating unauthorized role")
                 except:
                     pass
@@ -150,6 +211,16 @@ async def on_message(message):
                 f"⚠️ {member.mention} has been muted for {MUTE_DURATION} minutes for posting links!",
                 delete_after=10
             )
+            # لوق حماية - ميوت روابط
+            embed = discord.Embed(
+                title="🛡️ لوق الحماية - ميوت روابط",
+                color=0xff6600,
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="👤 العضو", value=f"{member.mention} ({member.id})", inline=False)
+            embed.add_field(name="📝 المحتوى", value=message.content[:1024], inline=False)
+            embed.add_field(name="⏰ المدة", value=f"{MUTE_DURATION} دقيقة", inline=True)
+            await send_log(message.guild, embed)
             print(f"🚫 Muted {member.name} for posting links")
         except:
             pass
@@ -168,6 +239,16 @@ async def on_message(message):
                 f"⚠️ {member.mention} has been muted for {MUTE_DURATION} minutes for spamming!",
                 delete_after=10
             )
+            # لوق حماية - ميوت سبام
+            embed = discord.Embed(
+                title="🛡️ لوق الحماية - ميوت سبام",
+                color=0xff6600,
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="👤 العضو", value=f"{member.mention} ({member.id})", inline=False)
+            embed.add_field(name="📝 السبب", value=f"إرسال {SPAM_THRESHOLD} رسائل في {SPAM_TIMEFRAME} ثواني", inline=False)
+            embed.add_field(name="⏰ المدة", value=f"{MUTE_DURATION} دقيقة", inline=True)
+            await send_log(message.guild, embed)
             user_messages[member.id].clear()
             print(f"🚫 Muted {member.name} for spamming")
         except:
@@ -191,6 +272,233 @@ async def setup_verify(ctx):
     
     await ctx.send(embed=embed, view=VerifyButton())
     print(f"✅ Verification message created in #{ctx.channel.name}")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setup_logs(ctx):
+    """إنشاء روم اللوقات المخفي"""
+    await ctx.message.delete()
+    
+    # إنشاء الروم مع صلاحيات مخفية
+    overwrites = {
+        ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        ctx.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    }
+    
+    log_channel = await ctx.guild.create_text_channel(
+        name="📋・logs",
+        overwrites=overwrites,
+        reason="نظام اللوقات - MSA"
+    )
+    
+    embed = discord.Embed(
+        title="✅ تم إنشاء نظام اللوقات",
+        description=f"روم اللوقات: {log_channel.mention}\n🔒 مخفي عن الجميع ما عدا الأدمن",
+        color=0x00ff00
+    )
+    await ctx.send(embed=embed, delete_after=10)
+    print(f"✅ Logs channel created: #{log_channel.name}")
+
+async def send_log(guild, embed):
+    """إرسال لوق للروم المخصص"""
+    log_channel = discord.utils.get(guild.text_channels, name="📋・logs")
+    if log_channel:
+        await log_channel.send(embed=embed)
+
+@bot.event
+async def on_guild_channel_delete(channel):
+    """لوق حذف روم"""
+    await asyncio.sleep(1)
+    async for entry in channel.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_delete):
+        if entry.target.id == channel.id:
+            embed = discord.Embed(
+                title="🔴 حذف روم",
+                color=0xff0000,
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="👤 الشخص", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+            embed.add_field(name="📝 اسم الروم", value=channel.name, inline=True)
+            embed.add_field(name="🆔 ID الروم", value=channel.id, inline=True)
+            await send_log(channel.guild, embed)
+            break
+
+@bot.event
+async def on_member_ban(guild, user):
+    """لوق باند"""
+    await asyncio.sleep(1)
+    async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.ban):
+        if entry.target.id == user.id:
+            embed = discord.Embed(
+                title="🔴 باند عضو",
+                color=0xff0000,
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="👤 المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+            embed.add_field(name="🎯 العضو", value=f"{user.mention} ({user.id})", inline=False)
+            embed.add_field(name="📝 السبب", value=entry.reason or "لا يوجد", inline=False)
+            await send_log(guild, embed)
+            break
+
+@bot.event
+async def on_member_unban(guild, user):
+    """لوق فك باند"""
+    await asyncio.sleep(1)
+    async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.unban):
+        if entry.target.id == user.id:
+            embed = discord.Embed(
+                title="🟢 فك باند",
+                color=0x00ff00,
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="👤 المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+            embed.add_field(name="🎯 العضو", value=f"{user.name} ({user.id})", inline=False)
+            await send_log(guild, embed)
+            break
+
+@bot.event
+async def on_member_kick(member):
+    """لوق كيك"""
+    await asyncio.sleep(1)
+    async for entry in member.guild.audit_logs(limit=1, action=discord.AuditLogAction.kick):
+        if entry.target.id == member.id:
+            embed = discord.Embed(
+                title="🔴 طرد عضو",
+                color=0xff0000,
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="👤 المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+            embed.add_field(name="🎯 العضو", value=f"{member.mention} ({member.id})", inline=False)
+            embed.add_field(name="📝 السبب", value=entry.reason or "لا يوجد", inline=False)
+            await send_log(member.guild, embed)
+            break
+
+@bot.event
+async def on_message_delete(message):
+    """لوق حذف رسالة"""
+    if message.author.bot:
+        return
+    
+    await asyncio.sleep(1)
+    async for entry in message.guild.audit_logs(limit=1, action=discord.AuditLogAction.message_delete):
+        embed = discord.Embed(
+            title="🔴 حذف رسالة",
+            color=0xff0000,
+            timestamp=datetime.now()
+        )
+        embed.add_field(name="👤 الكاتب", value=f"{message.author.mention} ({message.author.id})", inline=False)
+        embed.add_field(name="📝 المحتوى", value=message.content[:1024] if message.content else "لا يوجد", inline=False)
+        embed.add_field(name="📍 الروم", value=message.channel.mention, inline=True)
+        await send_log(message.guild, embed)
+        break
+
+@bot.event
+async def on_message_edit(before, after):
+    """لوق تعديل رسالة"""
+    if before.author.bot or before.content == after.content:
+        return
+    
+    embed = discord.Embed(
+        title="🟡 تعديل رسالة",
+        color=0xffff00,
+        timestamp=datetime.now()
+    )
+    embed.add_field(name="👤 الشخص", value=f"{before.author.mention} ({before.author.id})", inline=False)
+    embed.add_field(name="📝 قبل", value=before.content[:1024] if before.content else "لا يوجد", inline=False)
+    embed.add_field(name="📝 بعد", value=after.content[:1024] if after.content else "لا يوجد", inline=False)
+    embed.add_field(name="📍 الروم", value=before.channel.mention, inline=True)
+    await send_log(before.guild, embed)
+
+@bot.event
+async def on_member_update(before, after):
+    """لوق تغيير الاسم أو الرولات"""
+    # تغيير الاسم
+    if before.nick != after.nick:
+        embed = discord.Embed(
+            title="🟡 تغيير الاسم",
+            color=0xffff00,
+            timestamp=datetime.now()
+        )
+        embed.add_field(name="👤 العضو", value=f"{after.mention} ({after.id})", inline=False)
+        embed.add_field(name="📝 قبل", value=before.nick or before.name, inline=True)
+        embed.add_field(name="📝 بعد", value=after.nick or after.name, inline=True)
+        await send_log(after.guild, embed)
+    
+    # إضافة رول
+    if len(before.roles) < len(after.roles):
+        new_role = list(set(after.roles) - set(before.roles))[0]
+        await asyncio.sleep(1)
+        async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
+            embed = discord.Embed(
+                title="🟢 إعطاء رول",
+                color=0x00ff00,
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="👤 المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+            embed.add_field(name="🎯 العضو", value=f"{after.mention} ({after.id})", inline=False)
+            embed.add_field(name="📝 الرول", value=new_role.mention, inline=True)
+            await send_log(after.guild, embed)
+            break
+    
+    # سحب رول
+    if len(before.roles) > len(after.roles):
+        removed_role = list(set(before.roles) - set(after.roles))[0]
+        await asyncio.sleep(1)
+        async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
+            embed = discord.Embed(
+                title="🔴 سحب رول",
+                color=0xff0000,
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="👤 المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+            embed.add_field(name="🎯 العضو", value=f"{after.mention} ({after.id})", inline=False)
+            embed.add_field(name="📝 الرول", value=removed_role.name, inline=True)
+            await send_log(after.guild, embed)
+            break
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    """لوق الرومات الصوتية"""
+    # دخول روم صوتي
+    if before.channel is None and after.channel is not None:
+        embed = discord.Embed(
+            title="🟢 دخول روم صوتي",
+            color=0x00ff00,
+            timestamp=datetime.now()
+        )
+        embed.add_field(name="👤 العضو", value=f"{member.mention} ({member.id})", inline=False)
+        embed.add_field(name="🔊 الروم", value=after.channel.name, inline=True)
+        await send_log(member.guild, embed)
+    
+    # خروج من روم صوتي
+    elif before.channel is not None and after.channel is None:
+        embed = discord.Embed(
+            title="🔴 خروج من روم صوتي",
+            color=0xff0000,
+            timestamp=datetime.now()
+        )
+        embed.add_field(name="👤 العضو", value=f"{member.mention} ({member.id})", inline=False)
+        embed.add_field(name="🔊 الروم", value=before.channel.name, inline=True)
+        await send_log(member.guild, embed)
+    
+    # تنقل بين رومات
+    elif before.channel != after.channel and before.channel is not None and after.channel is not None:
+        embed = discord.Embed(
+            title="🟡 تنقل بين رومات صوتية",
+            color=0xffff00,
+            timestamp=datetime.now()
+        )
+        embed.add_field(name="👤 العضو", value=f"{member.mention} ({member.id})", inline=False)
+        embed.add_field(name="🔊 من", value=before.channel.name, inline=True)
+        embed.add_field(name="🔊 إلى", value=after.channel.name, inline=True)
+        await send_log(member.guild, embed)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def restart(ctx):
+    """إعادة تشغيل البوت"""
+    await ctx.send("🔄 إعادة تشغيل البوت...")
+    await bot.close()
+    os.execv(sys.executable, ['python'] + sys.argv)
 
 @bot.event
 async def on_command_error(ctx, error):
