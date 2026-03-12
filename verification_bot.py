@@ -93,22 +93,33 @@ async def on_member_join(member):
     embed.add_field(name="📊 عدد الأعضاء", value=member.guild.member_count, inline=True)
     await send_log(member.guild, embed)
     
-    # منع البوتات نهائياً
+    # منع البوتات نهائياً (إلا إذا أضافها المالك)
     if member.bot:
-        try:
-            await member.kick(reason="🚫 Bots are not allowed")
-            # لوق حماية - طرد بوت
-            embed = discord.Embed(
-                title="🛡️ لوق الحماية - طرد بوت",
-                color=0xff0000,
-                timestamp=datetime.now()
-            )
-            embed.add_field(name="🤖 البوت", value=f"{member.name} ({member.id})", inline=False)
-            embed.add_field(name="📝 السبب", value="البوتات غير مسموح بها", inline=False)
-            await send_log(member.guild, embed)
-            print(f"🚫 Kicked bot: {member.name}")
-        except:
-            pass
+        await asyncio.sleep(1)
+        async for entry in member.guild.audit_logs(limit=1, action=discord.AuditLogAction.bot_add):
+            if entry.target.id == member.id:
+                # لو المالك أضافه = سماح
+                if entry.user.id == member.guild.owner_id:
+                    print(f"✅ Owner added bot: {member.name}")
+                    return
+                # لو غير المالك = طرد
+                else:
+                    try:
+                        await member.kick(reason="🚫 Only owner can add bots")
+                        # لوق حماية - طرد بوت
+                        embed = discord.Embed(
+                            title="🛡️ لوق الحماية - طرد بوت",
+                            color=0xff0000,
+                            timestamp=datetime.now()
+                        )
+                        embed.add_field(name="🤖 البوت", value=f"{member.name} ({member.id})", inline=False)
+                        embed.add_field(name="👤 من أضافه", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+                        embed.add_field(name="📝 السبب", value="فقط المالك يمكنه إضافة بوتات", inline=False)
+                        await send_log(member.guild, embed)
+                        print(f"🚫 Kicked bot: {member.name} (added by {entry.user.name})")
+                    except:
+                        pass
+                break
         return
 
 @bot.event
