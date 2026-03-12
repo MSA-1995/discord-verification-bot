@@ -5,13 +5,14 @@ import sys
 from datetime import datetime, timedelta
 from collections import defaultdict
 import asyncio
+from config_encrypted import get_discord_token
 
-# قراءة الـ Token من Environment Variable
-TOKEN = os.getenv("DISCORD_TOKEN")
+# قراءة الـ Token من التشفير
+TOKEN = get_discord_token()
 
 if not TOKEN:
-    print("❌ Error: DISCORD_TOKEN not found!")
-    print("Please set DISCORD_TOKEN in Railway/Render settings.")
+    print("❌ Error: Failed to decrypt DISCORD_TOKEN!")
+    print("Please check ENCRYPTION_KEY.")
     exit(1)
 
 intents = discord.Intents.default()
