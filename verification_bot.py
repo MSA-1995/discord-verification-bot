@@ -122,6 +122,23 @@ async def on_member_join(member):
                         pass
                 break
         return
+    
+    # إعطاء رول Welcome تلقائياً للأعضاء الجدد
+    try:
+        welcome_role = discord.utils.get(member.guild.roles, name="Welcome")
+        if not welcome_role:
+            # إنشاء الرول إذا لم يكن موجود
+            welcome_role = await member.guild.create_role(
+                name="Welcome",
+                color=discord.Color.blue(),
+                reason="رول ترحيب تلقائي للأعضاء الجدد"
+            )
+            print(f"✅ Created Welcome role")
+        
+        await member.add_roles(welcome_role)
+        print(f"✅ Gave Welcome role to {member.name}")
+    except Exception as e:
+        print(f"⚠️ Error giving Welcome role: {e}")
 
 @bot.event
 async def on_guild_channel_create(channel):
