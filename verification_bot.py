@@ -522,12 +522,53 @@ async def on_voice_state_update(member, before, after):
         await send_log(member.guild, embed)
 
 @bot.command()
+@commands.has_permissions(manage_messages=True)
+async def clear(ctx):
+    """حذف كل الرسائل من الروم الحالي
+    
+    الاستخدام:
+    !clear - حذف كل الرسائل
+    """
+    try:
+        # حذف كل الرسائل
+        deleted = await ctx.channel.purge(limit=None)
+        msg = await ctx.send(f"✅ تم حذف {len(deleted)} رسالة من {ctx.channel.mention}")
+        
+        # حذف رسالة التأكيد بعد 3 ثواني
+        await asyncio.sleep(3)
+        await msg.delete()
+        
+        # لوق حذف الرسائل
+        embed = discord.Embed(
+            title="🗑️ حذف رسائل",
+            color=0xff6600,
+            timestamp=datetime.now()
+        )
+        embed.add_field(name="👤 المسؤول", value=f"{ctx.author.mention} ({ctx.author.id})", inline=False)
+        embed.add_field(name="📍 الروم", value=ctx.channel.mention, inline=True)
+        embed.add_field(name="📊 العدد", value=len(deleted), inline=True)
+        await send_log(ctx.guild, embed)
+        
+        print(f"🗑️ {ctx.author.name} cleared {len(deleted)} messages from #{ctx.channel.name}")
+    except discord.Forbidden:
+        await ctx.send("❌ ليس لدي صلاحية حذف الرسائل!", delete_after=5)
+    except Exception as e:
+        await ctx.send(f"❌ خطأ: {e}", delete_after=5)
+
+@bot.command()
 @commands.has_permissions(administrator=True)
 async def restart(ctx):
     """إعادة تشغيل البوت"""
     await ctx.send("🔄 إعادة تشغيل البوت...")
     await bot.close()
     os.execv(sys.executable, ['python'] + sys.argv)
+
+@clear.error
+async def clear_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ تحتاج صلاحية Manage Messages لاستخدام هذا الأمر!", delete_after=5)
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send("❌ استخدام خاطئ! مثال: `!clear` أو `!clear 50`", delete_after=5)
 
 @bot.event
 async def on_command_error(ctx, error):
