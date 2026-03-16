@@ -26,6 +26,13 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 user_messages = defaultdict(list)
 user_warnings = defaultdict(int)
 
+# تتبع الرسائل المحذوفة لتجنب التكرار
+deleted_messages = {}  # {message_id: timestamp}
+bulk_delete_active = False  # علم لتعطيل on_message_delete أثناء !clear
+
+# تتبع الأحداث لتجنب التكرار
+processed_events = {}  # {event_key: timestamp}
+
 # إعدادات الحماية
 SPAM_THRESHOLD = 5  # 5 رسائل في 10 ثواني
 SPAM_TIMEFRAME = 10  # ثواني
@@ -83,15 +90,28 @@ async def on_ready():
 @bot.event
 async def on_member_join(member):
     """فحص الأعضاء الجدد عند الدخول"""
+    # تجنب التكرار
+    event_key = f"member_join_{member.id}_{member.guild.id}"
+    current_time = datetime.now().timestamp()
+    
+    if event_key in processed_events:
+        time_diff = current_time - processed_events[event_key]
+        if time_diff < 5:
+            return
+    
+    processed_events[event_key] = current_time
+    
     # لوق دخول السيرفر
     embed = discord.Embed(
-        title="🟢 دخول السيرفر",
+        title="دخول السيرفر",
         color=0x00ff00,
         timestamp=datetime.now()
     )
-    embed.add_field(name="👤 العضو", value=f"{member.mention} ({member.id})", inline=False)
-    embed.add_field(name="📅 تاريخ إنشاء الحساب", value=member.created_at.strftime("%Y-%m-%d %H:%M"), inline=True)
-    embed.add_field(name="📊 عدد الأعضاء", value=member.guild.member_count, inline=True)
+    embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
+    embed.add_field(name="تاريخ إنشاء الحساب", value=member.created_at.strftime("%Y-%m-%d %H:%M"), inline=True)
+    embed.add_field(name="عدد الأعضاء", value=member.guild.member_count, inline=True)
+    embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
+    embed.set_footer(text="نظام الحماية • MSA")
     await send_log(member.guild, embed)
     
     # منع البوتات نهائياً (إلا إذا أضافها المالك)
@@ -109,13 +129,15 @@ async def on_member_join(member):
                         await member.kick(reason="🚫 Only owner can add bots")
                         # لوق حماية - طرد بوت
                         embed = discord.Embed(
-                            title="🛡️ لوق الحماية - طرد بوت",
+                            title="لوق الحماية - طرد بوت",
                             color=0xff0000,
                             timestamp=datetime.now()
                         )
-                        embed.add_field(name="🤖 البوت", value=f"{member.name} ({member.id})", inline=False)
-                        embed.add_field(name="👤 من أضافه", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-                        embed.add_field(name="📝 السبب", value="فقط المالك يمكنه إضافة بوتات", inline=False)
+                        embed.add_field(name="البوت", value=f"{member.name} ({member.id})", inline=False)
+                        embed.add_field(name="من أضافه", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+                        embed.add_field(name="السبب", value="فقط المالك يمكنه إضافة بوتات", inline=False)
+                        embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
+                        embed.set_footer(text="نظام الحماية • MSA")
                         await send_log(member.guild, embed)
                         print(f"🚫 Kicked bot: {member.name} (added by {entry.user.name})")
                     except:
@@ -150,13 +172,15 @@ async def on_guild_channel_create(channel):
             
             # لوق إنشاء روم
             embed = discord.Embed(
-                title="🟢 إنشاء روم",
+                title="إنشاء روم",
                 color=0x00ff00,
                 timestamp=datetime.now()
             )
-            embed.add_field(name="👤 الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
-            embed.add_field(name="📝 اسم الروم", value=channel.name, inline=True)
-            embed.add_field(name="🆔 ID الروم", value=channel.id, inline=True)
+            embed.add_field(name="الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
+            embed.add_field(name="اسم الروم", value=channel.name, inline=True)
+            embed.add_field(name="ID الروم", value=channel.id, inline=True)
+            embed.set_thumbnail(url=channel.guild.icon.url if channel.guild.icon else None)
+            embed.set_footer(text="نظام الحماية • MSA")
             await send_log(channel.guild, embed)
             
             # لو مو Admin
@@ -166,12 +190,14 @@ async def on_guild_channel_create(channel):
                     await creator.ban(reason="🚫 Unauthorized channel creation - Security threat")
                     # لوق حماية - باند
                     embed = discord.Embed(
-                        title="🛡️ لوق الحماية - باند",
+                        title="لوق الحماية - باند",
                         color=0xff0000,
                         timestamp=datetime.now()
                     )
-                    embed.add_field(name="👤 الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
-                    embed.add_field(name="📝 السبب", value="إنشاء روم غير مصرح به", inline=False)
+                    embed.add_field(name="الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
+                    embed.add_field(name="السبب", value="إنشاء روم غير مصرح به", inline=False)
+                    embed.set_thumbnail(url=channel.guild.icon.url if channel.guild.icon else None)
+                    embed.set_footer(text="نظام الحماية • MSA")
                     await send_log(channel.guild, embed)
                     print(f"🚫 Banned {creator.name} for creating unauthorized channel")
                 except:
@@ -188,13 +214,15 @@ async def on_guild_role_create(role):
             
             # لوق إنشاء رول
             embed = discord.Embed(
-                title="🟢 إنشاء رول",
+                title="إنشاء رول",
                 color=0x00ff00,
                 timestamp=datetime.now()
             )
-            embed.add_field(name="👤 الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
-            embed.add_field(name="📝 اسم الرول", value=role.name, inline=True)
-            embed.add_field(name="🆔 ID الرول", value=role.id, inline=True)
+            embed.add_field(name="الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
+            embed.add_field(name="اسم الرول", value=role.name, inline=True)
+            embed.add_field(name="ID الرول", value=role.id, inline=True)
+            embed.set_thumbnail(url=role.guild.icon.url if role.guild.icon else None)
+            embed.set_footer(text="نظام الحماية • MSA")
             await send_log(role.guild, embed)
             
             # لو مو Admin ومو البوت نفسه
@@ -206,12 +234,14 @@ async def on_guild_role_create(role):
                         await member.ban(reason="🚫 Unauthorized role creation - Security threat")
                         # لوق حماية - باند
                         embed = discord.Embed(
-                            title="🛡️ لوق الحماية - باند",
+                            title="لوق الحماية - باند",
                             color=0xff0000,
                             timestamp=datetime.now()
                         )
-                        embed.add_field(name="👤 الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
-                        embed.add_field(name="📝 السبب", value="إنشاء رول غير مصرح به", inline=False)
+                        embed.add_field(name="الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
+                        embed.add_field(name="السبب", value="إنشاء رول غير مصرح به", inline=False)
+                        embed.set_thumbnail(url=role.guild.icon.url if role.guild.icon else None)
+                        embed.set_footer(text="نظام الحماية • MSA")
                         await send_log(role.guild, embed)
                         print(f"🚫 Banned {creator.name} for creating unauthorized role")
                 except:
@@ -242,13 +272,15 @@ async def on_message(message):
             )
             # لوق حماية - ميوت روابط
             embed = discord.Embed(
-                title="🛡️ لوق الحماية - ميوت روابط",
+                title="لوق الحماية - ميوت روابط",
                 color=0xff6600,
                 timestamp=datetime.now()
             )
-            embed.add_field(name="👤 العضو", value=f"{member.mention} ({member.id})", inline=False)
-            embed.add_field(name="📝 المحتوى", value=message.content[:1024], inline=False)
-            embed.add_field(name="⏰ المدة", value=f"{MUTE_DURATION} دقيقة", inline=True)
+            embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
+            embed.add_field(name="المحتوى", value=message.content[:1024], inline=False)
+            embed.add_field(name="المدة", value=f"{MUTE_DURATION} دقيقة", inline=True)
+            embed.set_thumbnail(url=message.guild.icon.url if message.guild.icon else None)
+            embed.set_footer(text="نظام الحماية • MSA")
             await send_log(message.guild, embed)
             print(f"🚫 Muted {member.name} for posting links")
         except:
@@ -270,13 +302,15 @@ async def on_message(message):
             )
             # لوق حماية - ميوت سبام
             embed = discord.Embed(
-                title="🛡️ لوق الحماية - ميوت سبام",
+                title="لوق الحماية - ميوت سبام",
                 color=0xff6600,
                 timestamp=datetime.now()
             )
-            embed.add_field(name="👤 العضو", value=f"{member.mention} ({member.id})", inline=False)
-            embed.add_field(name="📝 السبب", value=f"إرسال {SPAM_THRESHOLD} رسائل في {SPAM_TIMEFRAME} ثواني", inline=False)
-            embed.add_field(name="⏰ المدة", value=f"{MUTE_DURATION} دقيقة", inline=True)
+            embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
+            embed.add_field(name="السبب", value=f"إرسال {SPAM_THRESHOLD} رسائل في {SPAM_TIMEFRAME} ثواني", inline=False)
+            embed.add_field(name="المدة", value=f"{MUTE_DURATION} دقيقة", inline=True)
+            embed.set_thumbnail(url=message.guild.icon.url if message.guild.icon else None)
+            embed.set_footer(text="نظام الحماية • MSA")
             await send_log(message.guild, embed)
             user_messages[member.id].clear()
             print(f"🚫 Muted {member.name} for spamming")
@@ -290,14 +324,19 @@ async def on_message(message):
 @commands.has_permissions(administrator=True)
 async def setup_verify(ctx):
     """أمر لإنشاء رسالة التوثيق مع زر"""
+    global bulk_delete_active
+    
+    bulk_delete_active = True
     await ctx.message.delete()
+    bulk_delete_active = False
     
     embed = discord.Embed(
-        title="🔐 توثيق السيرفر",
-        description="اضغط على زر **✅ توثيق** أدناه للحصول على صلاحية الوصول لبقية السيرفر!\n\n🛡️ **الحماية النشطة**",
+        title="توثيق السيرفر",
+        description="اضغط على زر **توثيق** أدناه للحصول على صلاحية الوصول لبقية السيرفر!\n\n**الحماية النشطة**",
         color=0x00ff00
     )
-    embed.set_footer(text="نظام التوثيق والحماية MSA")
+    embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+    embed.set_footer(text="نظام التوثيق والحماية • MSA")
     
     await ctx.send(embed=embed, view=VerifyButton())
     print(f"✅ Verification message created in #{ctx.channel.name}")
@@ -306,7 +345,11 @@ async def setup_verify(ctx):
 @commands.has_permissions(administrator=True)
 async def setup_logs(ctx):
     """إنشاء روم اللوقات المخفي"""
+    global bulk_delete_active
+    
+    bulk_delete_active = True
     await ctx.message.delete()
+    bulk_delete_active = False
     
     # إنشاء الروم مع صلاحيات مخفية
     overwrites = {
@@ -321,10 +364,12 @@ async def setup_logs(ctx):
     )
     
     embed = discord.Embed(
-        title="✅ تم إنشاء نظام اللوقات",
-        description=f"روم اللوقات: {log_channel.mention}\n🔒 مخفي عن الجميع ما عدا الأدمن",
+        title="تم إنشاء نظام اللوقات",
+        description=f"روم اللوقات: {log_channel.mention}\nمخفي عن الجميع ما عدا الأدمن",
         color=0x00ff00
     )
+    embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+    embed.set_footer(text="نظام الحماية • MSA")
     await ctx.send(embed=embed, delete_after=10)
     print(f"✅ Logs channel created: #{log_channel.name}")
 
@@ -341,13 +386,15 @@ async def on_guild_channel_delete(channel):
     async for entry in channel.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_delete):
         if entry.target.id == channel.id:
             embed = discord.Embed(
-                title="🔴 حذف روم",
+                title="حذف روم",
                 color=0xff0000,
                 timestamp=datetime.now()
             )
-            embed.add_field(name="👤 الشخص", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="📝 اسم الروم", value=channel.name, inline=True)
-            embed.add_field(name="🆔 ID الروم", value=channel.id, inline=True)
+            embed.add_field(name="الشخص", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+            embed.add_field(name="اسم الروم", value=channel.name, inline=True)
+            embed.add_field(name="ID الروم", value=channel.id, inline=True)
+            embed.set_thumbnail(url=channel.guild.icon.url if channel.guild.icon else None)
+            embed.set_footer(text="نظام الحماية • MSA")
             await send_log(channel.guild, embed)
             break
 
@@ -358,13 +405,15 @@ async def on_member_ban(guild, user):
     async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.ban):
         if entry.target.id == user.id:
             embed = discord.Embed(
-                title="🔴 باند عضو",
+                title="باند عضو",
                 color=0xff0000,
                 timestamp=datetime.now()
             )
-            embed.add_field(name="👤 المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="🎯 العضو", value=f"{user.mention} ({user.id})", inline=False)
-            embed.add_field(name="📝 السبب", value=entry.reason or "لا يوجد", inline=False)
+            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+            embed.add_field(name="العضو", value=f"{user.mention} ({user.id})", inline=False)
+            embed.add_field(name="السبب", value=entry.reason or "لا يوجد", inline=False)
+            embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
+            embed.set_footer(text="نظام الحماية • MSA")
             await send_log(guild, embed)
             break
 
@@ -375,12 +424,14 @@ async def on_member_unban(guild, user):
     async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.unban):
         if entry.target.id == user.id:
             embed = discord.Embed(
-                title="🟢 فك باند",
+                title="فك باند",
                 color=0x00ff00,
                 timestamp=datetime.now()
             )
-            embed.add_field(name="👤 المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="🎯 العضو", value=f"{user.name} ({user.id})", inline=False)
+            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+            embed.add_field(name="العضو", value=f"{user.name} ({user.id})", inline=False)
+            embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
+            embed.set_footer(text="نظام الحماية • MSA")
             await send_log(guild, embed)
             break
 
@@ -391,34 +442,59 @@ async def on_member_kick(member):
     async for entry in member.guild.audit_logs(limit=1, action=discord.AuditLogAction.kick):
         if entry.target.id == member.id:
             embed = discord.Embed(
-                title="🔴 طرد عضو",
+                title="طرد عضو",
                 color=0xff0000,
                 timestamp=datetime.now()
             )
-            embed.add_field(name="👤 المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="🎯 العضو", value=f"{member.mention} ({member.id})", inline=False)
-            embed.add_field(name="📝 السبب", value=entry.reason or "لا يوجد", inline=False)
+            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+            embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
+            embed.add_field(name="السبب", value=entry.reason or "لا يوجد", inline=False)
+            embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
+            embed.set_footer(text="نظام الحماية • MSA")
             await send_log(member.guild, embed)
             break
 
 @bot.event
 async def on_message_delete(message):
     """لوق حذف رسالة"""
+    global bulk_delete_active
+    
     if message.author.bot:
         return
     
-    await asyncio.sleep(1)
-    async for entry in message.guild.audit_logs(limit=1, action=discord.AuditLogAction.message_delete):
-        embed = discord.Embed(
-            title="🔴 حذف رسالة",
-            color=0xff0000,
-            timestamp=datetime.now()
-        )
-        embed.add_field(name="👤 الكاتب", value=f"{message.author.mention} ({message.author.id})", inline=False)
-        embed.add_field(name="📝 المحتوى", value=message.content[:1024] if message.content else "لا يوجد", inline=False)
-        embed.add_field(name="📍 الروم", value=message.channel.mention, inline=True)
-        await send_log(message.guild, embed)
-        break
+    # تجاهل الحذف الجماعي من !clear
+    if bulk_delete_active:
+        return
+    
+    # تجنب التكرار باستخدام timestamp
+    message_id = f"{message.id}_{message.channel.id}"
+    current_time = datetime.now().timestamp()
+    
+    # إذا الرسالة اتحذفت خلال آخر 5 ثواني، تجاهلها
+    if message_id in deleted_messages:
+        time_diff = current_time - deleted_messages[message_id]
+        if time_diff < 5:  # 5 ثواني
+            return
+    
+    deleted_messages[message_id] = current_time
+    
+    # تنظيف القائمة من الرسائل القديمة (أقدم من دقيقة)
+    old_messages = [mid for mid, ts in deleted_messages.items() if current_time - ts > 60]
+    for mid in old_messages:
+        del deleted_messages[mid]
+    
+    embed = discord.Embed(
+        title="حذف رسالة",
+        color=0xff0000,
+        timestamp=datetime.now()
+    )
+    
+    embed.add_field(name="الكاتب", value=f"{message.author.mention} ({message.author.id})", inline=False)
+    embed.add_field(name="المحتوى", value=message.content[:1024] if message.content else "لا يوجد", inline=False)
+    embed.add_field(name="الروم", value=message.channel.mention, inline=True)
+    embed.set_thumbnail(url=message.guild.icon.url if message.guild.icon else None)
+    embed.set_footer(text="نظام الحماية • MSA")
+    await send_log(message.guild, embed)
 
 @bot.event
 async def on_message_edit(before, after):
@@ -427,14 +503,16 @@ async def on_message_edit(before, after):
         return
     
     embed = discord.Embed(
-        title="🟡 تعديل رسالة",
+        title="تعديل رسالة",
         color=0xffff00,
         timestamp=datetime.now()
     )
-    embed.add_field(name="👤 الشخص", value=f"{before.author.mention} ({before.author.id})", inline=False)
-    embed.add_field(name="📝 قبل", value=before.content[:1024] if before.content else "لا يوجد", inline=False)
-    embed.add_field(name="📝 بعد", value=after.content[:1024] if after.content else "لا يوجد", inline=False)
-    embed.add_field(name="📍 الروم", value=before.channel.mention, inline=True)
+    embed.add_field(name="الشخص", value=f"{before.author.mention} ({before.author.id})", inline=False)
+    embed.add_field(name="قبل", value=before.content[:1024] if before.content else "لا يوجد", inline=False)
+    embed.add_field(name="بعد", value=after.content[:1024] if after.content else "لا يوجد", inline=False)
+    embed.add_field(name="الروم", value=before.channel.mention, inline=True)
+    embed.set_thumbnail(url=before.guild.icon.url if before.guild.icon else None)
+    embed.set_footer(text="نظام الحماية • MSA")
     await send_log(before.guild, embed)
 
 @bot.event
@@ -443,13 +521,15 @@ async def on_member_update(before, after):
     # تغيير الاسم
     if before.nick != after.nick:
         embed = discord.Embed(
-            title="🟡 تغيير الاسم",
+            title="تغيير الاسم",
             color=0xffff00,
             timestamp=datetime.now()
         )
-        embed.add_field(name="👤 العضو", value=f"{after.mention} ({after.id})", inline=False)
-        embed.add_field(name="📝 قبل", value=before.nick or before.name, inline=True)
-        embed.add_field(name="📝 بعد", value=after.nick or after.name, inline=True)
+        embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
+        embed.add_field(name="قبل", value=before.nick or before.name, inline=True)
+        embed.add_field(name="بعد", value=after.nick or after.name, inline=True)
+        embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
+        embed.set_footer(text="نظام الحماية • MSA")
         await send_log(after.guild, embed)
     
     # إضافة رول
@@ -458,13 +538,15 @@ async def on_member_update(before, after):
         await asyncio.sleep(1)
         async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
             embed = discord.Embed(
-                title="🟢 إعطاء رول",
+                title="إعطاء رول",
                 color=0x00ff00,
                 timestamp=datetime.now()
             )
-            embed.add_field(name="👤 المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="🎯 العضو", value=f"{after.mention} ({after.id})", inline=False)
-            embed.add_field(name="📝 الرول", value=new_role.mention, inline=True)
+            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+            embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
+            embed.add_field(name="الرول", value=new_role.mention, inline=True)
+            embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
+            embed.set_footer(text="نظام الحماية • MSA")
             await send_log(after.guild, embed)
             break
     
@@ -474,13 +556,15 @@ async def on_member_update(before, after):
         await asyncio.sleep(1)
         async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
             embed = discord.Embed(
-                title="🔴 سحب رول",
+                title="سحب رول",
                 color=0xff0000,
                 timestamp=datetime.now()
             )
-            embed.add_field(name="👤 المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="🎯 العضو", value=f"{after.mention} ({after.id})", inline=False)
-            embed.add_field(name="📝 الرول", value=removed_role.name, inline=True)
+            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+            embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
+            embed.add_field(name="الرول", value=removed_role.name, inline=True)
+            embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
+            embed.set_footer(text="نظام الحماية • MSA")
             await send_log(after.guild, embed)
             break
 
@@ -490,35 +574,41 @@ async def on_voice_state_update(member, before, after):
     # دخول روم صوتي
     if before.channel is None and after.channel is not None:
         embed = discord.Embed(
-            title="🟢 دخول روم صوتي",
+            title="دخول روم صوتي",
             color=0x00ff00,
             timestamp=datetime.now()
         )
-        embed.add_field(name="👤 العضو", value=f"{member.mention} ({member.id})", inline=False)
-        embed.add_field(name="🔊 الروم", value=after.channel.name, inline=True)
+        embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
+        embed.add_field(name="الروم", value=after.channel.name, inline=True)
+        embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
+        embed.set_footer(text="نظام الحماية • MSA")
         await send_log(member.guild, embed)
     
     # خروج من روم صوتي
     elif before.channel is not None and after.channel is None:
         embed = discord.Embed(
-            title="🔴 خروج من روم صوتي",
+            title="خروج من روم صوتي",
             color=0xff0000,
             timestamp=datetime.now()
         )
-        embed.add_field(name="👤 العضو", value=f"{member.mention} ({member.id})", inline=False)
-        embed.add_field(name="🔊 الروم", value=before.channel.name, inline=True)
+        embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
+        embed.add_field(name="الروم", value=before.channel.name, inline=True)
+        embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
+        embed.set_footer(text="نظام الحماية • MSA")
         await send_log(member.guild, embed)
     
     # تنقل بين رومات
     elif before.channel != after.channel and before.channel is not None and after.channel is not None:
         embed = discord.Embed(
-            title="🟡 تنقل بين رومات صوتية",
+            title="تنقل بين رومات صوتية",
             color=0xffff00,
             timestamp=datetime.now()
         )
-        embed.add_field(name="👤 العضو", value=f"{member.mention} ({member.id})", inline=False)
-        embed.add_field(name="🔊 من", value=before.channel.name, inline=True)
-        embed.add_field(name="🔊 إلى", value=after.channel.name, inline=True)
+        embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
+        embed.add_field(name="من", value=before.channel.name, inline=True)
+        embed.add_field(name="إلى", value=after.channel.name, inline=True)
+        embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
+        embed.set_footer(text="نظام الحماية • MSA")
         await send_log(member.guild, embed)
 
 @bot.command()
@@ -529,31 +619,84 @@ async def clear(ctx):
     الاستخدام:
     !clear - حذف كل الرسائل
     """
+    global bulk_delete_active
+    
     try:
+        # تفعيل علم الحذف الجماعي
+        bulk_delete_active = True
+        
         # حذف كل الرسائل
         deleted = await ctx.channel.purge(limit=None)
+        
+        # إيقاف علم الحذف الجماعي
+        bulk_delete_active = False
+        
         msg = await ctx.send(f"✅ تم حذف {len(deleted)} رسالة من {ctx.channel.mention}")
         
         # حذف رسالة التأكيد بعد 3 ثواني
         await asyncio.sleep(3)
         await msg.delete()
         
-        # لوق حذف الرسائل
-        embed = discord.Embed(
-            title="🗑️ حذف رسائل",
-            color=0xff6600,
-            timestamp=datetime.now()
-        )
-        embed.add_field(name="👤 المسؤول", value=f"{ctx.author.mention} ({ctx.author.id})", inline=False)
-        embed.add_field(name="📍 الروم", value=ctx.channel.mention, inline=True)
-        embed.add_field(name="📊 العدد", value=len(deleted), inline=True)
-        await send_log(ctx.guild, embed)
-        
         print(f"🗑️ {ctx.author.name} cleared {len(deleted)} messages from #{ctx.channel.name}")
     except discord.Forbidden:
+        bulk_delete_active = False
         await ctx.send("❌ ليس لدي صلاحية حذف الرسائل!", delete_after=5)
     except Exception as e:
+        bulk_delete_active = False
         await ctx.send(f"❌ خطأ: {e}", delete_after=5)
+
+@bot.command()
+async def test_log(ctx):
+    """أمر تجريبي لعرض شكل اللوق الجديد"""
+    global bulk_delete_active
+    
+    # تعطيل لوق الحذف مؤقتاً
+    bulk_delete_active = True
+    await ctx.message.delete()
+    bulk_delete_active = False
+    
+    # مثال 1: لوق دخول
+    embed1 = discord.Embed(
+        title="دخول السيرفر",
+        color=0x00ff00,
+        timestamp=datetime.now()
+    )
+    embed1.add_field(name="العضو", value=f"{ctx.author.mention} ({ctx.author.id})", inline=False)
+    embed1.add_field(name="تاريخ إنشاء الحساب", value=ctx.author.created_at.strftime("%Y-%m-%d %H:%M"), inline=True)
+    embed1.add_field(name="عدد الأعضاء", value=ctx.guild.member_count, inline=True)
+    embed1.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+    embed1.set_footer(text="نظام الحماية • MSA")
+    await ctx.send(embed=embed1)
+    
+    await asyncio.sleep(1)
+    
+    # مثال 2: لوق حماية
+    embed2 = discord.Embed(
+        title="لوق الحماية - ميوت سبام",
+        color=0xff6600,
+        timestamp=datetime.now()
+    )
+    embed2.add_field(name="العضو", value=f"{ctx.author.mention} ({ctx.author.id})", inline=False)
+    embed2.add_field(name="السبب", value="إرسال 5 رسائل في 10 ثواني", inline=False)
+    embed2.add_field(name="المدة", value="30 دقيقة", inline=True)
+    embed2.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+    embed2.set_footer(text="نظام الحماية • MSA")
+    await ctx.send(embed=embed2)
+    
+    await asyncio.sleep(1)
+    
+    # مثال 3: لوق باند
+    embed3 = discord.Embed(
+        title="باند عضو",
+        color=0xff0000,
+        timestamp=datetime.now()
+    )
+    embed3.add_field(name="المسؤول", value=f"{ctx.author.mention} ({ctx.author.id})", inline=False)
+    embed3.add_field(name="العضو", value="TestUser#1234 (123456789)", inline=False)
+    embed3.add_field(name="السبب", value="مخالفة قوانين السيرفر", inline=False)
+    embed3.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+    embed3.set_footer(text="نظام الحماية • MSA")
+    await ctx.send(embed=embed3)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
