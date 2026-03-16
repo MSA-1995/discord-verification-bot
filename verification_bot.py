@@ -1,723 +1,969 @@
-import discord
-from discord.ext import commands
-import os
+"""
+🧠 Deep Learning Trainer V3 - 8 Specialized Models (7 LSTM + 1 CNN)
+Trains AI Brain + 7 Consultant Models for trading decisions
+"""
+
+# ========== AUTO-UPDATE PIP ==========
+import subprocess
 import sys
+try:
+    print("🔄 Checking pip updates...")
+    result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'], 
+                           capture_output=True, check=False, timeout=30, text=True)
+    if "Successfully installed" in result.stdout:
+        print("✅ pip updated successfully")
+    else:
+        print("✅ pip is up to date")
+except Exception as e:
+    print(f"⚠️ pip update skipped: {e}")
+
+# ========== LOAD ENV FILE ==========
+import os
+for _env_file in [
+    '/home/container/DeepLearningTrainer/.env',
+    '/home/container/.env',
+]:
+    try:
+        with open(_env_file) as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith('#') and '=' in _line:
+                    _k, _v = _line.split('=', 1)
+                    os.environ.setdefault(_k.strip(), _v.strip())
+        break
+    except:
+        pass
+
+import time
+import json
 from datetime import datetime, timedelta
-from collections import defaultdict
-import asyncio
-from config_encrypted import get_discord_token
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from urllib.parse import urlparse, unquote
 
-# قراءة الـ Token من التشفير
-TOKEN = get_discord_token()
+try:
+    import numpy as np
+    import pandas as pd
+    os.environ['KERAS_BACKEND'] = 'jax'
+    import keras
+    from keras import layers
+    DL_AVAILABLE = True
+    print(f"✅ Keras {keras.__version__} with JAX backend loaded")
+except ImportError:
+    print("❌ Keras not installed. Run: pip install keras jax jaxlib")
+    DL_AVAILABLE = False
+    sys.exit(1)
 
-if not TOKEN:
-    print("❌ Error: Failed to decrypt DISCORD_TOKEN!")
-    print("Please check ENCRYPTION_KEY.")
-    exit(1)
-
-intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True
-intents.guilds = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-# نظام تتبع الرسائل (للسبام)
-user_messages = defaultdict(list)
-user_warnings = defaultdict(int)
-
-# تتبع الرسائل المحذوفة لتجنب التكرار
-deleted_messages = {}  # {message_id: timestamp}
-bulk_delete_active = False  # علم لتعطيل on_message_delete أثناء !clear
-
-# تتبع الأحداث لتجنب التكرار
-processed_events = {}  # {event_key: timestamp}
-
-# إعدادات الحماية
-SPAM_THRESHOLD = 5  # 5 رسائل في 10 ثواني
-SPAM_TIMEFRAME = 10  # ثواني
-NEW_ACCOUNT_DAYS = 30  # الحسابات الأحدث من 30 يوم
-MUTE_DURATION = 30  # 30 دقيقة
-
-class VerifyButton(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+class DeepLearningTrainerV2:
+    def __init__(self, database_url):
+        self.database_url = database_url
+        self.conn = self._connect_db()
+        
+        # 8 موديلات: AI Brain + 7 مستشارين (6 LSTM + 1 CNN)
+        self.models = {
+            'ai_brain': None,      # AI Brain - LSTM
+            'mtf': None,           # Multi-Timeframe - LSTM
+            'risk': None,          # Risk Manager - LSTM
+            'anomaly': None,       # Anomaly Detector - LSTM
+            'exit': None,          # Exit Strategy - LSTM
+            'pattern': None,       # Pattern Recognition - LSTM
+            'ranking': None,       # Coin Ranking - LSTM
+            'chart_cnn': None      # Chart Pattern Analyzer - CNN (جديد)
+        }
+        
+        self.sequence_length = 10
+        self.min_trades_for_training = 100
+        
+        print("🧠 Deep Learning Trainer V3 initialized (8 Models: 7 LSTM + 1 CNN)")
     
-    @discord.ui.button(label="✅ Verify Me", style=discord.ButtonStyle.green, custom_id="verify_button")
-    async def verify(self, interaction: discord.Interaction, button: discord.ui.Button):
-        member = interaction.user
+    def _connect_db(self):
+        """Connect to PostgreSQL"""
+        try:
+            parsed = urlparse(self.database_url)
+            self._db_params = {
+                'host': parsed.hostname,
+                'port': parsed.port,
+                'database': parsed.path[1:],
+                'user': parsed.username,
+                'password': unquote(parsed.password)
+            }
+            conn = psycopg2.connect(**self._db_params)
+            print("✅ Database connected")
+            return conn
+        except Exception as e:
+            print(f"❌ Database connection error: {e}")
+            return None
+
+    def _get_conn(self):
+        """Get valid connection - reconnect if closed"""
+        try:
+            if self.conn.closed:
+                raise Exception("closed")
+            self.conn.cursor().execute("SELECT 1")
+        except Exception:
+            try:
+                self.conn = psycopg2.connect(**self._db_params)
+            except Exception as e:
+                print(f"❌ DB reconnect error: {e}")
+        return self.conn
+    
+    def load_training_data(self):
+        """Load historical trades for LSTM training"""
+        if not self.conn:
+            return None
         
-        # فحص إذا كان بوت
-        if member.bot:
-            await interaction.response.send_message("❌ Bots cannot be verified!", ephemeral=True)
-            return
-        
-        # فحص عمر الحساب
-        account_age = (datetime.now(member.created_at.tzinfo) - member.created_at).days
-        is_new = account_age < NEW_ACCOUNT_DAYS
-        has_avatar = member.avatar is not None
-        
-        # إعطاء رول Verified
-        verified_role = discord.utils.get(interaction.guild.roles, name="Verified")
-        if not verified_role:
-            verified_role = await interaction.guild.create_role(name="Verified")
-        
-        await member.add_roles(verified_role)
-        
-        # إضافة رول مراقبة للحسابات الجديدة/بدون صورة
-        if is_new or not has_avatar:
-            watched_role = discord.utils.get(interaction.guild.roles, name="Watched")
-            if not watched_role:
-                watched_role = await interaction.guild.create_role(
-                    name="Watched",
-                    color=discord.Color.orange()
-                )
-            await member.add_roles(watched_role)
+        try:
+            cursor = self._get_conn().cursor(cursor_factory=RealDictCursor)
             
-            msg = "✅ Verified! ⚠️ You are under strict monitoring."
-        else:
-            msg = "✅ You have been verified!"
+            cursor.execute("""
+                SELECT 
+                    symbol,
+                    profit_percent,
+                    action,
+                    timestamp,
+                    data
+                FROM trades_history
+                WHERE action = 'SELL'
+                AND data IS NOT NULL
+                ORDER BY timestamp ASC
+                LIMIT 2000
+            """)
+            
+            trades = cursor.fetchall()
+            cursor.close()
+            
+            if len(trades) < self.min_trades_for_training:
+                print(f"⚠️ Not enough trades. Need {self.min_trades_for_training}, have {len(trades)}")
+                return None
+            
+            print(f"📊 Loaded {len(trades)} trades for training")
+            return trades
         
-        await interaction.response.send_message(msg, ephemeral=True)
+        except Exception as e:
+            print(f"❌ Error loading data: {e}")
+            return None
+    
+    def build_lstm_model(self, sequence_length, n_features, output_dim=1, model_type='binary'):
+        """Build LSTM model"""
+        model = keras.Sequential([
+            layers.Input(shape=(sequence_length, n_features)),
+            layers.LSTM(64, return_sequences=True),
+            layers.Dropout(0.3),
+            layers.LSTM(32, return_sequences=False),
+            layers.Dropout(0.2),
+            layers.Dense(16, activation='relu'),
+            layers.Dropout(0.2),
+        ])
+        
+        if model_type == 'binary':
+            model.add(layers.Dense(output_dim, activation='sigmoid'))
+            model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        elif model_type == 'regression':
+            model.add(layers.Dense(output_dim, activation='linear'))
+            model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+        elif model_type == 'multiclass':
+            model.add(layers.Dense(output_dim, activation='softmax'))
+            model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+        
+        return model
+    
+    def prepare_sequences(self, features_list, labels_list):
+        """تحويل البيانات لـ sequences"""
+        X_sequences = []
+        y_sequences = []
+        
+        for i in range(len(features_list) - self.sequence_length):
+            sequence = features_list[i:i + self.sequence_length]
+            label = labels_list[i + self.sequence_length]
+            
+            X_sequences.append(sequence)
+            y_sequences.append(label)
+        
+        return np.array(X_sequences, dtype=np.float32), np.array(y_sequences, dtype=np.float32)
+    
+    def calculate_enhanced_features(self, data):
+        """Feature Engineering: حساب مؤشرات إضافية"""
+        try:
+            rsi = data.get('rsi', 50)
+            macd = data.get('macd', 0)
+            volume_ratio = data.get('volume_ratio', 1)
+            price_momentum = data.get('price_momentum', 0)
+            
+            # Bollinger Bands approximation
+            bb_position = (rsi - 30) / 40  # normalized position in BB
+            
+            # ATR approximation (from volatility)
+            atr_estimate = abs(price_momentum) * volume_ratio
+            
+            # Stochastic approximation
+            stochastic = rsi  # simplified
+            
+            # EMA crossover signal
+            ema_signal = 1 if macd > 0 else -1
+            
+            # Volume strength
+            volume_strength = min(volume_ratio / 2.0, 2.0)  # normalized
+            
+            # Momentum strength
+            momentum_strength = abs(price_momentum) / 10.0
+            
+            return [
+                rsi,
+                macd,
+                volume_ratio,
+                price_momentum,
+                bb_position,
+                atr_estimate,
+                stochastic,
+                ema_signal,
+                volume_strength,
+                momentum_strength
+            ]
+        except:
+            return [50, 0, 1, 0, 0.5, 1, 50, 0, 1, 0]
+    
+    def build_cnn_model(self, sequence_length, n_features):
+        """Build CNN model for chart pattern analysis"""
+        model = keras.Sequential([
+            layers.Input(shape=(sequence_length, n_features)),
+            layers.Conv1D(64, kernel_size=3, activation='relu', padding='same'),
+            layers.MaxPooling1D(pool_size=2),
+            layers.Conv1D(32, kernel_size=3, activation='relu', padding='same'),
+            layers.GlobalMaxPooling1D(),
+            layers.Dense(16, activation='relu'),
+            layers.Dropout(0.3),
+            layers.Dense(1, activation='sigmoid')
+        ])
+        
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        return model
+    
+    def train_mtf_model(self, trades):
+        """Train Multi-Timeframe Analyzer"""
+        print("\n🎓 Training MTF Model...")
+        
+        features_list = []
+        labels_list = []
+        
+        for trade in trades:
+            try:
+                data = trade.get('data', {})
+                if isinstance(data, str):
+                    data = json.loads(data)
+                
+                features = [
+                    data.get('rsi', 50),
+                    data.get('macd', 0),
+                    data.get('volume_ratio', 1),
+                    data.get('price_momentum', 0)
+                ]
+                
+                profit = float(trade.get('profit_percent', 0))
+                # MTF: توقع الترند (bullish=1, bearish=0)
+                label = 1 if profit > 0 else 0
+                
+                features_list.append(features)
+                labels_list.append(label)
+            except:
+                continue
+        
+        X, y = self.prepare_sequences(features_list, labels_list)
+        
+        if len(X) < 50:
+            print("⚠️ Not enough data for MTF")
+            return None
+        
+        split_idx = int(len(X) * 0.8)
+        X_train, X_test = X[:split_idx], X[split_idx:]
+        y_train, y_test = y[:split_idx], y[split_idx:]
+        
+        model = self.build_lstm_model(self.sequence_length, X.shape[2], output_dim=1, model_type='binary')
+        
+        model.fit(X_train, y_train, epochs=30, batch_size=32, validation_split=0.2, verbose=0)
+        
+        loss, accuracy = model.evaluate(X_test, y_test, verbose=0)
+        print(f"✅ MTF Model: Accuracy {accuracy*100:.2f}%")
+        
+        return model, accuracy
+    
+    def train_ai_brain_model(self, trades):
+        """Train AI Brain (الملك) - القرار النهائي"""
+        print("\n👑 Training AI Brain Model...")
+        
+        features_list = []
+        labels_list = []
+        
+        for trade in trades:
+            try:
+                data = trade.get('data', {})
+                if isinstance(data, str):
+                    data = json.loads(data)
+                
+                # الملك ياخذ كل المعلومات
+                features = [
+                    data.get('rsi', 50),
+                    data.get('macd', 0),
+                    data.get('volume_ratio', 1),
+                    data.get('price_momentum', 0),
+                    data.get('confidence', 60),
+                    data.get('mtf_score', 0),
+                    data.get('risk_score', 0),
+                    data.get('anomaly_score', 0),
+                    data.get('exit_score', 0),
+                    data.get('pattern_score', 0),
+                    data.get('ranking_score', 0)
+                ]
+                
+                profit = float(trade.get('profit_percent', 0))
+                # الملك يتعلم: هل القرار كان صح؟ (ربح = 1, خسارة = 0)
+                label = 1 if profit > 0.5 else 0
+                
+                features_list.append(features)
+                labels_list.append(label)
+            except:
+                continue
+        
+        X, y = self.prepare_sequences(features_list, labels_list)
+        
+        if len(X) < 50:
+            print("⚠️ Not enough data for AI Brain")
+            return None
+        
+        split_idx = int(len(X) * 0.8)
+        X_train, X_test = X[:split_idx], X[split_idx:]
+        y_train, y_test = y[:split_idx], y[split_idx:]
+        
+        # الملك يحتاج موديل أكبر (أذكى)
+        model = keras.Sequential([
+            layers.Input(shape=(self.sequence_length, X.shape[2])),
+            layers.LSTM(128, return_sequences=True),  # أكبر من الباقي
+            layers.Dropout(0.3),
+            layers.LSTM(64, return_sequences=False),
+            layers.Dropout(0.2),
+            layers.Dense(32, activation='relu'),
+            layers.Dropout(0.2),
+            layers.Dense(1, activation='sigmoid')
+        ])
+        
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        
+        model.fit(X_train, y_train, epochs=50, batch_size=32, validation_split=0.2, verbose=0)  # epochs أكثر
+        
+        loss, accuracy = model.evaluate(X_test, y_test, verbose=0)
+        print(f"👑 AI Brain Model: Accuracy {accuracy*100:.2f}%")
+        
+        return model, accuracy
+    
+    def train_risk_model(self, trades):
+        """Train Risk Manager"""
+        print("\n🎓 Training Risk Model...")
+        
+        features_list = []
+        labels_list = []
+        
+        for trade in trades:
+            try:
+                data = trade.get('data', {})
+                if isinstance(data, str):
+                    data = json.loads(data)
+                
+                features = [
+                    data.get('rsi', 50),
+                    data.get('volume_ratio', 1),
+                    data.get('confidence', 60),
+                    data.get('price_momentum', 0)
+                ]
+                
+                profit = float(trade.get('profit_percent', 0))
+                # Risk: توقع مستوى المخاطرة (high_risk=1 if loss, low_risk=0)
+                label = 1 if profit < -1.0 else 0
+                
+                features_list.append(features)
+                labels_list.append(label)
+            except:
+                continue
+        
+        X, y = self.prepare_sequences(features_list, labels_list)
+        
+        if len(X) < 50:
+            print("⚠️ Not enough data for Risk")
+            return None
+        
+        split_idx = int(len(X) * 0.8)
+        X_train, X_test = X[:split_idx], X[split_idx:]
+        y_train, y_test = y[:split_idx], y[split_idx:]
+        
+        model = self.build_lstm_model(self.sequence_length, X.shape[2], output_dim=1, model_type='binary')
+        
+        model.fit(X_train, y_train, epochs=30, batch_size=32, validation_split=0.2, verbose=0)
+        
+        loss, accuracy = model.evaluate(X_test, y_test, verbose=0)
+        print(f"✅ Risk Model: Accuracy {accuracy*100:.2f}%")
+        
+        return model, accuracy
 
-@bot.event
-async def on_ready():
-    bot.add_view(VerifyButton())
-    print(f"✅ {bot.user} is online and ready!")
-    print(f"📊 Connected to {len(bot.guilds)} server(s)")
-    print("🛡️ Protection System: ACTIVE")
-
-@bot.event
-async def on_member_join(member):
-    """فحص الأعضاء الجدد عند الدخول"""
-    # تجنب التكرار
-    event_key = f"member_join_{member.id}_{member.guild.id}"
-    current_time = datetime.now().timestamp()
     
-    if event_key in processed_events:
-        time_diff = current_time - processed_events[event_key]
-        if time_diff < 5:
-            return
+    def train_anomaly_model(self, trades):
+        """Train Anomaly Detector"""
+        print("\n🎓 Training Anomaly Model...")
+        
+        features_list = []
+        labels_list = []
+        
+        for trade in trades:
+            try:
+                data = trade.get('data', {})
+                if isinstance(data, str):
+                    data = json.loads(data)
+                
+                features = [
+                    data.get('rsi', 50),
+                    data.get('macd', 0),
+                    data.get('volume_ratio', 1),
+                    data.get('price_momentum', 0)
+                ]
+                
+                profit = float(trade.get('profit_percent', 0))
+                # Anomaly: كشف الحالات الشاذة (خسارة كبيرة)
+                label = 1 if profit < -1.5 else 0
+                
+                features_list.append(features)
+                labels_list.append(label)
+            except:
+                continue
+        
+        X, y = self.prepare_sequences(features_list, labels_list)
+        
+        if len(X) < 50:
+            print("⚠️ Not enough data for Anomaly")
+            return None
+        
+        split_idx = int(len(X) * 0.8)
+        X_train, X_test = X[:split_idx], X[split_idx:]
+        y_train, y_test = y[:split_idx], y[split_idx:]
+        
+        model = self.build_lstm_model(self.sequence_length, X.shape[2], output_dim=1, model_type='binary')
+        
+        model.fit(X_train, y_train, epochs=30, batch_size=32, validation_split=0.2, verbose=0)
+        
+        loss, accuracy = model.evaluate(X_test, y_test, verbose=0)
+        print(f"✅ Anomaly Model: Accuracy {accuracy*100:.2f}%")
+        
+        return model, accuracy
     
-    processed_events[event_key] = current_time
+    def train_exit_model(self, trades):
+        """Train Exit Strategy"""
+        print("\n🎓 Training Exit Model...")
+        
+        features_list = []
+        labels_list = []
+        
+        for trade in trades:
+            try:
+                data = trade.get('data', {})
+                if isinstance(data, str):
+                    data = json.loads(data)
+                
+                features = [
+                    data.get('rsi', 50),
+                    data.get('macd', 0),
+                    data.get('confidence', 60),
+                    data.get('price_momentum', 0)
+                ]
+                
+                profit = float(trade.get('profit_percent', 0))
+                # Exit: متى نبيع؟ (sell_now=1 if profit>1 or loss<-1)
+                label = 1 if (profit > 1.0 or profit < -1.0) else 0
+                
+                features_list.append(features)
+                labels_list.append(label)
+            except:
+                continue
+        
+        X, y = self.prepare_sequences(features_list, labels_list)
+        
+        if len(X) < 50:
+            print("⚠️ Not enough data for Exit")
+            return None
+        
+        split_idx = int(len(X) * 0.8)
+        X_train, X_test = X[:split_idx], X[split_idx:]
+        y_train, y_test = y[:split_idx], y[split_idx:]
+        
+        model = self.build_lstm_model(self.sequence_length, X.shape[2], output_dim=1, model_type='binary')
+        
+        model.fit(X_train, y_train, epochs=30, batch_size=32, validation_split=0.2, verbose=0)
+        
+        loss, accuracy = model.evaluate(X_test, y_test, verbose=0)
+        print(f"✅ Exit Model: Accuracy {accuracy*100:.2f}%")
+        
+        return model, accuracy
     
-    # لوق دخول السيرفر
-    embed = discord.Embed(
-        title="دخول السيرفر",
-        color=0x00ff00,
-        timestamp=datetime.now()
-    )
-    embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
-    embed.add_field(name="تاريخ إنشاء الحساب", value=member.created_at.strftime("%Y-%m-%d %H:%M"), inline=True)
-    embed.add_field(name="عدد الأعضاء", value=member.guild.member_count, inline=True)
-    embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-    embed.set_footer(text="نظام الحماية • MSA")
-    await send_log(member.guild, embed)
+    def train_pattern_model(self, trades):
+        """Train Pattern Recognition"""
+        print("\n🎓 Training Pattern Model...")
+        
+        features_list = []
+        labels_list = []
+        
+        for trade in trades:
+            try:
+                data = trade.get('data', {})
+                if isinstance(data, str):
+                    data = json.loads(data)
+                
+                features = [
+                    data.get('rsi', 50),
+                    data.get('macd', 0),
+                    data.get('volume_ratio', 1),
+                    data.get('price_momentum', 0),
+                    data.get('confidence', 60)
+                ]
+                
+                profit = float(trade.get('profit_percent', 0))
+                # Pattern: نمط ناجح أو فخ
+                label = 1 if profit > 0.5 else 0
+                
+                features_list.append(features)
+                labels_list.append(label)
+            except:
+                continue
+        
+        X, y = self.prepare_sequences(features_list, labels_list)
+        
+        if len(X) < 50:
+            print("⚠️ Not enough data for Pattern")
+            return None
+        
+        split_idx = int(len(X) * 0.8)
+        X_train, X_test = X[:split_idx], X[split_idx:]
+        y_train, y_test = y[:split_idx], y[split_idx:]
+        
+        model = self.build_lstm_model(self.sequence_length, X.shape[2], output_dim=1, model_type='binary')
+        
+        model.fit(X_train, y_train, epochs=30, batch_size=32, validation_split=0.2, verbose=0)
+        
+        loss, accuracy = model.evaluate(X_test, y_test, verbose=0)
+        print(f"✅ Pattern Model: Accuracy {accuracy*100:.2f}%")
+        
+        return model, accuracy
     
-    # منع البوتات نهائياً (إلا إذا أضافها المالك)
-    if member.bot:
-        await asyncio.sleep(1)
-        async for entry in member.guild.audit_logs(limit=1, action=discord.AuditLogAction.bot_add):
-            if entry.target.id == member.id:
-                # لو المالك أضافه = سماح
-                if entry.user.id == member.guild.owner_id:
-                    print(f"✅ Owner added bot: {member.name}")
-                    return
-                # لو غير المالك = طرد
+    def train_ranking_model(self, trades):
+        """Train Coin Ranking"""
+        print("\n🎓 Training Ranking Model...")
+        
+        # تجميع البيانات حسب العملة
+        coin_data = {}
+        
+        for trade in trades:
+            try:
+                symbol = trade.get('symbol')
+                profit = float(trade.get('profit_percent', 0))
+                
+                if symbol not in coin_data:
+                    coin_data[symbol] = {'profits': [], 'count': 0}
+                
+                coin_data[symbol]['profits'].append(profit)
+                coin_data[symbol]['count'] += 1
+            except:
+                continue
+        
+        features_list = []
+        labels_list = []
+        
+        for symbol, data in coin_data.items():
+            if data['count'] < 3:
+                continue
+            
+            avg_profit = sum(data['profits']) / len(data['profits'])
+            win_rate = sum(1 for p in data['profits'] if p > 0) / len(data['profits'])
+            
+            features = [
+                avg_profit,
+                win_rate,
+                data['count'],
+                max(data['profits']),
+                min(data['profits'])
+            ]
+            
+            # Ranking: عملة جيدة أو سيئة
+            label = 1 if avg_profit > 0 and win_rate > 0.5 else 0
+            
+            features_list.append(features)
+            labels_list.append(label)
+        
+        if len(features_list) < 20:
+            print("⚠️ Not enough coins for Ranking")
+            return None
+        
+        # Ranking لا يحتاج sequences (بيانات ثابتة لكل عملة)
+        X = np.array(features_list, dtype=np.float32)
+        y = np.array(labels_list, dtype=np.float32)
+        
+        split_idx = int(len(X) * 0.8)
+        X_train, X_test = X[:split_idx], X[split_idx:]
+        y_train, y_test = y[:split_idx], y[split_idx:]
+        
+        # موديل بسيط (بدون LSTM)
+        model = keras.Sequential([
+            layers.Input(shape=(5,)),
+            layers.Dense(32, activation='relu'),
+            layers.Dropout(0.3),
+            layers.Dense(16, activation='relu'),
+            layers.Dense(1, activation='sigmoid')
+        ])
+        
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        
+        model.fit(X_train, y_train, epochs=30, batch_size=16, validation_split=0.2, verbose=0)
+        
+        loss, accuracy = model.evaluate(X_test, y_test, verbose=0)
+        print(f"✅ Ranking Model: Accuracy {accuracy*100:.2f}%")
+        
+        return model, accuracy
+    
+    def train_chart_cnn_model(self, trades):
+        """Train Chart Pattern Analyzer (CNN)"""
+        print("\n📊 Training Chart CNN Model...")
+        
+        features_list = []
+        labels_list = []
+        
+        for trade in trades:
+            try:
+                data = trade.get('data', {})
+                if isinstance(data, str):
+                    data = json.loads(data)
+                
+                # استخدام Feature Engineering المحسّن
+                features = self.calculate_enhanced_features(data)
+                
+                profit = float(trade.get('profit_percent', 0))
+                # CNN: كشف أنماط الشارت الناجحة
+                label = 1 if profit > 0.5 else 0
+                
+                features_list.append(features)
+                labels_list.append(label)
+            except:
+                continue
+        
+        X, y = self.prepare_sequences(features_list, labels_list)
+        
+        if len(X) < 50:
+            print("⚠️ Not enough data for Chart CNN")
+            return None
+        
+        split_idx = int(len(X) * 0.8)
+        X_train, X_test = X[:split_idx], X[split_idx:]
+        y_train, y_test = y[:split_idx], y[split_idx:]
+        
+        model = self.build_cnn_model(self.sequence_length, X.shape[2])
+        
+        model.fit(X_train, y_train, epochs=30, batch_size=32, validation_split=0.2, verbose=0)
+        
+        loss, accuracy = model.evaluate(X_test, y_test, verbose=0)
+        print(f"📊 Chart CNN Model: Accuracy {accuracy*100:.2f}%")
+        
+        return model, accuracy
+    
+    def train_all_models(self):
+        """Train all 8 models (AI Brain + 7 Consultants: 6 LSTM + 1 CNN)"""
+        print("\n" + "="*60)
+        print("👑 Starting Training - 8 Models (7 LSTM + 1 CNN)")
+        print("="*60)
+        
+        trades = self.load_training_data()
+        if not trades:
+            return False
+        
+        results = {}
+        
+        # 🎯 حساب دقة التصويت أولاً (التعلم من الأداء السابق)
+        try:
+            voting_scores = self.calculate_voting_accuracy(trades)
+            results['voting_scores'] = voting_scores
+        except Exception as e:
+            print(f"⚠️ Voting accuracy calculation error: {e}")
+            results['voting_scores'] = {}
+        
+        # 👑 الملك يتدرب أول (الأهم)
+        try:
+            result = self.train_ai_brain_model(trades)
+            if result:
+                self.models['ai_brain'], results['ai_brain_accuracy'] = result
+        except Exception as e:
+            print(f"❌ AI Brain training error: {e}")
+        
+        # Train consultant models
+        try:
+            result = self.train_mtf_model(trades)
+            if result:
+                self.models['mtf'], results['mtf_accuracy'] = result
+        except Exception as e:
+            print(f"❌ MTF training error: {e}")
+        
+        try:
+            result = self.train_risk_model(trades)
+            if result:
+                self.models['risk'], results['risk_accuracy'] = result
+        except Exception as e:
+            print(f"❌ Risk training error: {e}")
+        
+        try:
+            result = self.train_anomaly_model(trades)
+            if result:
+                self.models['anomaly'], results['anomaly_accuracy'] = result
+        except Exception as e:
+            print(f"❌ Anomaly training error: {e}")
+        
+        try:
+            result = self.train_exit_model(trades)
+            if result:
+                self.models['exit'], results['exit_accuracy'] = result
+        except Exception as e:
+            print(f"❌ Exit training error: {e}")
+        
+        try:
+            result = self.train_pattern_model(trades)
+            if result:
+                self.models['pattern'], results['pattern_accuracy'] = result
+        except Exception as e:
+            print(f"❌ Pattern training error: {e}")
+        
+        try:
+            result = self.train_ranking_model(trades)
+            if result:
+                self.models['ranking'], results['ranking_accuracy'] = result
+        except Exception as e:
+            print(f"❌ Ranking training error: {e}")
+        
+        # Train CNN model
+        try:
+            result = self.train_chart_cnn_model(trades)
+            if result:
+                self.models['chart_cnn'], results['chart_cnn_accuracy'] = result
+        except Exception as e:
+            print(f"❌ Chart CNN training error: {e}")
+        
+        # Save models
+        self.save_all_models()
+        
+        # Save to database
+        self.save_models_to_db(results)
+        
+        print("\n✅ All 8 models trained successfully!")
+        print("🎓 Consultants learned from voting accuracy!")
+        return True
+    
+    def save_all_models(self):
+        """Save all models to files"""
+        print("\n💾 Saving models...")
+        
+        for model_name, model in self.models.items():
+            if model:
+                try:
+                    model_path = os.path.join(os.path.dirname(__file__), f'{model_name}_model.keras')
+                    model.save(model_path)
+                    print(f"  ✅ {model_name} saved")
+                except Exception as e:
+                    print(f"  ❌ {model_name} save error: {e}")
+    
+    def calculate_voting_accuracy(self, trades):
+        """
+        🎯 حساب دقة تصويت المستشارين (TP/Amount/SL)
+        Returns: accuracy scores for each consultant
+        """
+        print("\n🎯 Calculating voting accuracy...")
+        
+        consultant_scores = {
+            'exit': {'tp': [], 'amount': [], 'sl': []},
+            'mtf': {'tp': [], 'amount': [], 'sl': []},
+            'risk': {'tp': [], 'amount': [], 'sl': []},
+            'pattern': {'tp': [], 'amount': [], 'sl': []},
+            'cnn': {'tp': [], 'amount': [], 'sl': []},
+            'anomaly': {'tp': [], 'amount': [], 'sl': []},
+            'ranking': {'tp': [], 'amount': [], 'sl': []}
+        }
+        
+        for trade in trades:
+            try:
+                data = trade.get('data', {})
+                if isinstance(data, str):
+                    data = json.loads(data)
+                
+                # البيانات المتوقعة
+                predicted_tp = data.get('predicted_tp', 0)
+                predicted_sl = data.get('predicted_sl', 0)
+                predicted_amount = data.get('predicted_amount', 0)
+                
+                # البيانات الفعلية
+                actual_profit = float(trade.get('profit_percent', 0))
+                
+                if predicted_tp == 0 or predicted_amount == 0:
+                    continue  # لا توجد بيانات تصويت
+                
+                # حساب دقة TP (هل الربح الفعلي قريب من المتوقع؟)
+                tp_error = abs(actual_profit - predicted_tp) / max(abs(predicted_tp), 0.1)
+                tp_accuracy = max(0, 1 - tp_error)  # كلما قل الخطأ، زادت الدقة
+                
+                # حساب دقة Amount (هل المبلغ كان مناسب؟)
+                # لو ربح عالي → المبلغ كان صح
+                # لو خسارة → المبلغ كان كبير
+                if actual_profit > 0:
+                    amount_accuracy = min(actual_profit / 2.0, 1.0)  # ربح = دقة عالية
                 else:
-                    try:
-                        await member.kick(reason="🚫 Only owner can add bots")
-                        # لوق حماية - طرد بوت
-                        embed = discord.Embed(
-                            title="لوق الحماية - طرد بوت",
-                            color=0xff0000,
-                            timestamp=datetime.now()
-                        )
-                        embed.add_field(name="البوت", value=f"{member.name} ({member.id})", inline=False)
-                        embed.add_field(name="من أضافه", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-                        embed.add_field(name="السبب", value="فقط المالك يمكنه إضافة بوتات", inline=False)
-                        embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-                        embed.set_footer(text="نظام الحماية • MSA")
-                        await send_log(member.guild, embed)
-                        print(f"🚫 Kicked bot: {member.name} (added by {entry.user.name})")
-                    except:
-                        pass
-                break
-        return
-    
-    # إعطاء رول Welcome تلقائياً للأعضاء الجدد
-    try:
-        welcome_role = discord.utils.get(member.guild.roles, name="Welcome")
-        if not welcome_role:
-            # إنشاء الرول إذا لم يكن موجود
-            welcome_role = await member.guild.create_role(
-                name="Welcome",
-                color=discord.Color.blue(),
-                reason="رول ترحيب تلقائي للأعضاء الجدد"
-            )
-            print(f"✅ Created Welcome role")
+                    amount_accuracy = max(0, 1 + actual_profit / 2.0)  # خسارة = دقة منخفضة
+                
+                # حساب دقة SL (هل SL كان كافي؟)
+                if actual_profit < 0:
+                    # لو الخسارة أقل من SL المتوقع → SL كان صح
+                    sl_accuracy = 1.0 if actual_profit >= predicted_sl else 0.5
+                else:
+                    sl_accuracy = 1.0  # لو ربح، SL ما استخدم
+                
+                # توزيع النقاط على المستشارين (افتراضي - متساوي)
+                # في المستقبل، يمكن تتبع تصويت كل مستشار بشكل منفصل
+                for consultant in consultant_scores.keys():
+                    consultant_scores[consultant]['tp'].append(tp_accuracy)
+                    consultant_scores[consultant]['amount'].append(amount_accuracy)
+                    consultant_scores[consultant]['sl'].append(sl_accuracy)
+            
+            except Exception as e:
+                continue
         
-        await member.add_roles(welcome_role)
-        print(f"✅ Gave Welcome role to {member.name}")
-    except Exception as e:
-        print(f"⚠️ Error giving Welcome role: {e}")
-
-@bot.event
-async def on_guild_channel_create(channel):
-    """حماية من إنشاء رومات غير مصرح بها"""
-    await asyncio.sleep(1)
-    async for entry in channel.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_create):
-        if entry.target.id == channel.id:
-            creator = entry.user
+        # حساب المتوسط لكل مستشار
+        final_scores = {}
+        for consultant, scores in consultant_scores.items():
+            if len(scores['tp']) > 0:
+                avg_tp = sum(scores['tp']) / len(scores['tp'])
+                avg_amount = sum(scores['amount']) / len(scores['amount'])
+                avg_sl = sum(scores['sl']) / len(scores['sl'])
+                
+                # الدقة الإجمالية
+                overall_accuracy = (avg_tp + avg_amount + avg_sl) / 3.0
+                
+                final_scores[consultant] = {
+                    'tp_accuracy': avg_tp,
+                    'amount_accuracy': avg_amount,
+                    'sl_accuracy': avg_sl,
+                    'overall_accuracy': overall_accuracy
+                }
+                
+                print(f"  📊 {consultant}: TP={avg_tp*100:.1f}% | Amount={avg_amount*100:.1f}% | SL={avg_sl*100:.1f}% | Overall={overall_accuracy*100:.1f}%")
+            else:
+                final_scores[consultant] = {
+                    'tp_accuracy': 0.5,
+                    'amount_accuracy': 0.5,
+                    'sl_accuracy': 0.5,
+                    'overall_accuracy': 0.5
+                }
+        
+        return final_scores
+    
+    def save_models_to_db(self, results):
+        """Save models info to database"""
+        if not self.conn:
+            return False
+        
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
             
-            # لوق إنشاء روم
-            embed = discord.Embed(
-                title="إنشاء روم",
-                color=0x00ff00,
-                timestamp=datetime.now()
-            )
-            embed.add_field(name="الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
-            embed.add_field(name="اسم الروم", value=channel.name, inline=True)
-            embed.add_field(name="ID الروم", value=channel.id, inline=True)
-            embed.set_thumbnail(url=channel.guild.icon.url if channel.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await send_log(channel.guild, embed)
+            # زيادة timeout للعملية
+            cursor.execute("SET statement_timeout = '60s'")
             
-            # لو مو Admin
-            if not creator.guild_permissions.administrator and not creator.bot:
-                try:
-                    await channel.delete(reason="🚫 Unauthorized channel creation")
-                    await creator.ban(reason="🚫 Unauthorized channel creation - Security threat")
-                    # لوق حماية - باند
-                    embed = discord.Embed(
-                        title="لوق الحماية - باند",
-                        color=0xff0000,
-                        timestamp=datetime.now()
+            # محاولة إضافة العمود إذا لم يكن موجود (بدل DROP TABLE)
+            try:
+                cursor.execute("""
+                    ALTER TABLE dl_models_v2 
+                    ADD COLUMN IF NOT EXISTS voting_accuracy JSONB DEFAULT '{}'
+                """)
+            except:
+                # لو الجدول مو موجود، ننشئه
+                cursor.execute("DROP TABLE IF EXISTS dl_models_v2")
+                cursor.execute("""
+                    CREATE TABLE dl_models_v2 (
+                        id SERIAL PRIMARY KEY,
+                        model_name VARCHAR(50) NOT NULL,
+                        model_type VARCHAR(50) NOT NULL,
+                        accuracy FLOAT,
+                        trained_at TIMESTAMP DEFAULT NOW(),
+                        status VARCHAR(20) DEFAULT 'active',
+                        voting_accuracy JSONB DEFAULT '{}'
                     )
-                    embed.add_field(name="الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
-                    embed.add_field(name="السبب", value="إنشاء روم غير مصرح به", inline=False)
-                    embed.set_thumbnail(url=channel.guild.icon.url if channel.guild.icon else None)
-                    embed.set_footer(text="نظام الحماية • MSA")
-                    await send_log(channel.guild, embed)
-                    print(f"🚫 Banned {creator.name} for creating unauthorized channel")
-                except:
-                    pass
-            break
-
-@bot.event
-async def on_guild_role_create(role):
-    """حماية من إنشاء رتب غير مصرح بها"""
-    await asyncio.sleep(1)
-    async for entry in role.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_create):
-        if entry.target.id == role.id:
-            creator = entry.user
+                """)
             
-            # لوق إنشاء رول
-            embed = discord.Embed(
-                title="إنشاء رول",
-                color=0x00ff00,
-                timestamp=datetime.now()
-            )
-            embed.add_field(name="الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
-            embed.add_field(name="اسم الرول", value=role.name, inline=True)
-            embed.add_field(name="ID الرول", value=role.id, inline=True)
-            embed.set_thumbnail(url=role.guild.icon.url if role.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await send_log(role.guild, embed)
+            # حذف البيانات القديمة
+            cursor.execute("DELETE FROM dl_models_v2")
             
-            # لو مو Admin ومو البوت نفسه
-            if not creator.guild_permissions.administrator and creator.id != bot.user.id:
-                try:
-                    await role.delete(reason="🚫 Unauthorized role creation")
-                    member = role.guild.get_member(creator.id)
-                    if member:
-                        await member.ban(reason="🚫 Unauthorized role creation - Security threat")
-                        # لوق حماية - باند
-                        embed = discord.Embed(
-                            title="لوق الحماية - باند",
-                            color=0xff0000,
-                            timestamp=datetime.now()
-                        )
-                        embed.add_field(name="الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
-                        embed.add_field(name="السبب", value="إنشاء رول غير مصرح به", inline=False)
-                        embed.set_thumbnail(url=role.guild.icon.url if role.guild.icon else None)
-                        embed.set_footer(text="نظام الحماية • MSA")
-                        await send_log(role.guild, embed)
-                        print(f"🚫 Banned {creator.name} for creating unauthorized role")
-                except:
-                    pass
-            break
-
-@bot.event
-async def on_message(message):
-    # تجاهل رسائل البوت
-    if message.author.bot:
-        return
-    
-    # تجاهل المسؤولين
-    if message.author.guild_permissions.administrator:
-        await bot.process_commands(message)
-        return
-    
-    member = message.author
-    
-    # فحص الروابط
-    if any(word in message.content.lower() for word in ['http://', 'https://', 'discord.gg/', '.com', '.net', '.org']):
-        try:
-            await message.delete()
-            await member.timeout(timedelta(minutes=MUTE_DURATION), reason="🚫 Posted links")
-            await message.channel.send(
-                f"⚠️ {member.mention} has been muted for {MUTE_DURATION} minutes for posting links!",
-                delete_after=10
-            )
-            # لوق حماية - ميوت روابط
-            embed = discord.Embed(
-                title="لوق الحماية - ميوت روابط",
-                color=0xff6600,
-                timestamp=datetime.now()
-            )
-            embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
-            embed.add_field(name="المحتوى", value=message.content[:1024], inline=False)
-            embed.add_field(name="المدة", value=f"{MUTE_DURATION} دقيقة", inline=True)
-            embed.set_thumbnail(url=message.guild.icon.url if message.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await send_log(message.guild, embed)
-            print(f"🚫 Muted {member.name} for posting links")
-        except:
-            pass
-        return
-    
-    # فحص السبام
-    now = datetime.now()
-    user_messages[member.id].append(now)
-    user_messages[member.id] = [msg_time for msg_time in user_messages[member.id] 
-                                 if (now - msg_time).seconds < SPAM_TIMEFRAME]
-    
-    if len(user_messages[member.id]) >= SPAM_THRESHOLD:
-        try:
-            await member.timeout(timedelta(minutes=MUTE_DURATION), reason="🚫 Spamming")
-            await message.channel.send(
-                f"⚠️ {member.mention} has been muted for {MUTE_DURATION} minutes for spamming!",
-                delete_after=10
-            )
-            # لوق حماية - ميوت سبام
-            embed = discord.Embed(
-                title="لوق الحماية - ميوت سبام",
-                color=0xff6600,
-                timestamp=datetime.now()
-            )
-            embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
-            embed.add_field(name="السبب", value=f"إرسال {SPAM_THRESHOLD} رسائل في {SPAM_TIMEFRAME} ثواني", inline=False)
-            embed.add_field(name="المدة", value=f"{MUTE_DURATION} دقيقة", inline=True)
-            embed.set_thumbnail(url=message.guild.icon.url if message.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await send_log(message.guild, embed)
-            user_messages[member.id].clear()
-            print(f"🚫 Muted {member.name} for spamming")
-        except:
-            pass
-        return
-    
-    await bot.process_commands(message)
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setup_verify(ctx):
-    """أمر لإنشاء رسالة التوثيق مع زر"""
-    global bulk_delete_active
-    
-    bulk_delete_active = True
-    await ctx.message.delete()
-    bulk_delete_active = False
-    
-    embed = discord.Embed(
-        title="توثيق السيرفر",
-        description="اضغط على زر **توثيق** أدناه للحصول على صلاحية الوصول لبقية السيرفر!\n\n**الحماية النشطة**",
-        color=0x00ff00
-    )
-    embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
-    embed.set_footer(text="نظام التوثيق والحماية • MSA")
-    
-    await ctx.send(embed=embed, view=VerifyButton())
-    print(f"✅ Verification message created in #{ctx.channel.name}")
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setup_logs(ctx):
-    """إنشاء روم اللوقات المخفي"""
-    global bulk_delete_active
-    
-    bulk_delete_active = True
-    await ctx.message.delete()
-    bulk_delete_active = False
-    
-    # إنشاء الروم مع صلاحيات مخفية
-    overwrites = {
-        ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-        ctx.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-    }
-    
-    log_channel = await ctx.guild.create_text_channel(
-        name="📋・logs",
-        overwrites=overwrites,
-        reason="نظام اللوقات - MSA"
-    )
-    
-    embed = discord.Embed(
-        title="تم إنشاء نظام اللوقات",
-        description=f"روم اللوقات: {log_channel.mention}\nمخفي عن الجميع ما عدا الأدمن",
-        color=0x00ff00
-    )
-    embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
-    embed.set_footer(text="نظام الحماية • MSA")
-    await ctx.send(embed=embed, delete_after=10)
-    print(f"✅ Logs channel created: #{log_channel.name}")
-
-async def send_log(guild, embed):
-    """إرسال لوق للروم المخصص"""
-    log_channel = discord.utils.get(guild.text_channels, name="📋・logs")
-    if log_channel:
-        await log_channel.send(embed=embed)
-
-@bot.event
-async def on_guild_channel_delete(channel):
-    """لوق حذف روم"""
-    await asyncio.sleep(1)
-    async for entry in channel.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_delete):
-        if entry.target.id == channel.id:
-            embed = discord.Embed(
-                title="حذف روم",
-                color=0xff0000,
-                timestamp=datetime.now()
-            )
-            embed.add_field(name="الشخص", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="اسم الروم", value=channel.name, inline=True)
-            embed.add_field(name="ID الروم", value=channel.id, inline=True)
-            embed.set_thumbnail(url=channel.guild.icon.url if channel.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await send_log(channel.guild, embed)
-            break
-
-@bot.event
-async def on_member_ban(guild, user):
-    """لوق باند"""
-    await asyncio.sleep(1)
-    async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.ban):
-        if entry.target.id == user.id:
-            embed = discord.Embed(
-                title="باند عضو",
-                color=0xff0000,
-                timestamp=datetime.now()
-            )
-            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="العضو", value=f"{user.mention} ({user.id})", inline=False)
-            embed.add_field(name="السبب", value=entry.reason or "لا يوجد", inline=False)
-            embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await send_log(guild, embed)
-            break
-
-@bot.event
-async def on_member_unban(guild, user):
-    """لوق فك باند"""
-    await asyncio.sleep(1)
-    async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.unban):
-        if entry.target.id == user.id:
-            embed = discord.Embed(
-                title="فك باند",
-                color=0x00ff00,
-                timestamp=datetime.now()
-            )
-            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="العضو", value=f"{user.name} ({user.id})", inline=False)
-            embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await send_log(guild, embed)
-            break
-
-@bot.event
-async def on_member_kick(member):
-    """لوق كيك"""
-    await asyncio.sleep(1)
-    async for entry in member.guild.audit_logs(limit=1, action=discord.AuditLogAction.kick):
-        if entry.target.id == member.id:
-            embed = discord.Embed(
-                title="طرد عضو",
-                color=0xff0000,
-                timestamp=datetime.now()
-            )
-            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
-            embed.add_field(name="السبب", value=entry.reason or "لا يوجد", inline=False)
-            embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await send_log(member.guild, embed)
-            break
-
-@bot.event
-async def on_message_delete(message):
-    """لوق حذف رسالة"""
-    global bulk_delete_active
-    
-    if message.author.bot:
-        return
-    
-    # تجاهل الحذف الجماعي من !clear
-    if bulk_delete_active:
-        return
-    
-    # تجنب التكرار باستخدام timestamp
-    message_id = f"{message.id}_{message.channel.id}"
-    current_time = datetime.now().timestamp()
-    
-    # إذا الرسالة اتحذفت خلال آخر 5 ثواني، تجاهلها
-    if message_id in deleted_messages:
-        time_diff = current_time - deleted_messages[message_id]
-        if time_diff < 5:  # 5 ثواني
-            return
-    
-    deleted_messages[message_id] = current_time
-    
-    # تنظيف القائمة من الرسائل القديمة (أقدم من دقيقة)
-    old_messages = [mid for mid, ts in deleted_messages.items() if current_time - ts > 60]
-    for mid in old_messages:
-        del deleted_messages[mid]
-    
-    embed = discord.Embed(
-        title="حذف رسالة",
-        color=0xff0000,
-        timestamp=datetime.now()
-    )
-    
-    embed.add_field(name="الكاتب", value=f"{message.author.mention} ({message.author.id})", inline=False)
-    embed.add_field(name="المحتوى", value=message.content[:1024] if message.content else "لا يوجد", inline=False)
-    embed.add_field(name="الروم", value=message.channel.mention, inline=True)
-    embed.set_thumbnail(url=message.guild.icon.url if message.guild.icon else None)
-    embed.set_footer(text="نظام الحماية • MSA")
-    await send_log(message.guild, embed)
-
-@bot.event
-async def on_message_edit(before, after):
-    """لوق تعديل رسالة"""
-    if before.author.bot or before.content == after.content:
-        return
-    
-    embed = discord.Embed(
-        title="تعديل رسالة",
-        color=0xffff00,
-        timestamp=datetime.now()
-    )
-    embed.add_field(name="الشخص", value=f"{before.author.mention} ({before.author.id})", inline=False)
-    embed.add_field(name="قبل", value=before.content[:1024] if before.content else "لا يوجد", inline=False)
-    embed.add_field(name="بعد", value=after.content[:1024] if after.content else "لا يوجد", inline=False)
-    embed.add_field(name="الروم", value=before.channel.mention, inline=True)
-    embed.set_thumbnail(url=before.guild.icon.url if before.guild.icon else None)
-    embed.set_footer(text="نظام الحماية • MSA")
-    await send_log(before.guild, embed)
-
-@bot.event
-async def on_member_update(before, after):
-    """لوق تغيير الاسم أو الرولات"""
-    # تغيير الاسم
-    if before.nick != after.nick:
-        embed = discord.Embed(
-            title="تغيير الاسم",
-            color=0xffff00,
-            timestamp=datetime.now()
-        )
-        embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
-        embed.add_field(name="قبل", value=before.nick or before.name, inline=True)
-        embed.add_field(name="بعد", value=after.nick or after.name, inline=True)
-        embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
-        embed.set_footer(text="نظام الحماية • MSA")
-        await send_log(after.guild, embed)
-    
-    # إضافة رول
-    if len(before.roles) < len(after.roles):
-        new_role = list(set(after.roles) - set(before.roles))[0]
-        await asyncio.sleep(1)
-        async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
-            embed = discord.Embed(
-                title="إعطاء رول",
-                color=0x00ff00,
-                timestamp=datetime.now()
-            )
-            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
-            embed.add_field(name="الرول", value=new_role.mention, inline=True)
-            embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await send_log(after.guild, embed)
-            break
-    
-    # سحب رول
-    if len(before.roles) > len(after.roles):
-        removed_role = list(set(before.roles) - set(after.roles))[0]
-        await asyncio.sleep(1)
-        async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
-            embed = discord.Embed(
-                title="سحب رول",
-                color=0xff0000,
-                timestamp=datetime.now()
-            )
-            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
-            embed.add_field(name="الرول", value=removed_role.name, inline=True)
-            embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await send_log(after.guild, embed)
-            break
-
-@bot.event
-async def on_voice_state_update(member, before, after):
-    """لوق الرومات الصوتية"""
-    # دخول روم صوتي
-    if before.channel is None and after.channel is not None:
-        embed = discord.Embed(
-            title="دخول روم صوتي",
-            color=0x00ff00,
-            timestamp=datetime.now()
-        )
-        embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
-        embed.add_field(name="الروم", value=after.channel.name, inline=True)
-        embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-        embed.set_footer(text="نظام الحماية • MSA")
-        await send_log(member.guild, embed)
-    
-    # خروج من روم صوتي
-    elif before.channel is not None and after.channel is None:
-        embed = discord.Embed(
-            title="خروج من روم صوتي",
-            color=0xff0000,
-            timestamp=datetime.now()
-        )
-        embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
-        embed.add_field(name="الروم", value=before.channel.name, inline=True)
-        embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-        embed.set_footer(text="نظام الحماية • MSA")
-        await send_log(member.guild, embed)
-    
-    # تنقل بين رومات
-    elif before.channel != after.channel and before.channel is not None and after.channel is not None:
-        embed = discord.Embed(
-            title="تنقل بين رومات صوتية",
-            color=0xffff00,
-            timestamp=datetime.now()
-        )
-        embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
-        embed.add_field(name="من", value=before.channel.name, inline=True)
-        embed.add_field(name="إلى", value=after.channel.name, inline=True)
-        embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-        embed.set_footer(text="نظام الحماية • MSA")
-        await send_log(member.guild, embed)
-
-@bot.command()
-@commands.has_permissions(manage_messages=True)
-async def clear(ctx):
-    """حذف كل الرسائل من الروم الحالي
-    
-    الاستخدام:
-    !clear - حذف كل الرسائل
-    """
-    global bulk_delete_active
-    
-    try:
-        # تفعيل علم الحذف الجماعي
-        bulk_delete_active = True
+            for model_name in self.models.keys():
+                accuracy_key = f'{model_name}_accuracy'
+                accuracy = results.get(accuracy_key, 0)
+                
+                # حفظ دقة التصويت
+                voting_acc = results.get('voting_scores', {}).get(model_name, {})
+                
+                cursor.execute("""
+                    INSERT INTO dl_models_v2 (model_name, model_type, accuracy, voting_accuracy)
+                    VALUES (%s, %s, %s, %s)
+                """, (model_name, 'LSTM', float(accuracy), json.dumps(voting_acc)))
+            
+            conn.commit()
+            cursor.close()
+            
+            print("💾 Models info saved to database")
+            return True
         
-        # حذف كل الرسائل
-        deleted = await ctx.channel.purge(limit=None)
+        except Exception as e:
+            print(f"❌ Error saving to DB: {e}")
+            self._get_conn().rollback()
+            return False
+    
+    def run_continuous(self, interval_hours=12):
+        """Run training continuously"""
+        print(f"\n🚀 Deep Learning Trainer V3 started!")
+        print(f"⏰ Training interval: {interval_hours} hours")
+        print("="*60)
         
-        # إيقاف علم الحذف الجماعي
-        bulk_delete_active = False
-        
-        msg = await ctx.send(f"✅ تم حذف {len(deleted)} رسالة من {ctx.channel.mention}")
-        
-        # حذف رسالة التأكيد بعد 3 ثواني
-        await asyncio.sleep(3)
-        await msg.delete()
-        
-        print(f"🗑️ {ctx.author.name} cleared {len(deleted)} messages from #{ctx.channel.name}")
-    except discord.Forbidden:
-        bulk_delete_active = False
-        await ctx.send("❌ ليس لدي صلاحية حذف الرسائل!", delete_after=5)
-    except Exception as e:
-        bulk_delete_active = False
-        await ctx.send(f"❌ خطأ: {e}", delete_after=5)
+        while True:
+            try:
+                current_time = datetime.now().strftime("%H:%M:%S")
+                print(f"\n{'='*60}")
+                print(f"⏰ {current_time}")
+                print(f"{'='*60}")
+                
+                success = self.train_all_models()
+                
+                if success:
+                    print(f"\n✅ Training successful")
+                else:
+                    print(f"\n⚠️ Training skipped - not enough data")
+                
+                next_time = (datetime.now() + timedelta(hours=interval_hours)).strftime("%H:%M:%S")
+                print(f"\n⏰ Next training at: {next_time}")
+                time.sleep(interval_hours * 3600)
+            
+            except KeyboardInterrupt:
+                print("\n🛑 Trainer stopped by user")
+                break
+            except Exception as e:
+                print(f"❌ Error: {e}")
+                print(f"⏰ Retrying in 30 minutes...")
+                time.sleep(1800)
 
-@bot.command()
-async def test_log(ctx):
-    """أمر تجريبي لعرض شكل اللوق الجديد"""
-    global bulk_delete_active
+def main():
+    if not DL_AVAILABLE:
+        print("❌ Please install Keras:")
+        print("   pip install keras jax jaxlib")
+        return
     
-    # تعطيل لوق الحذف مؤقتاً
-    bulk_delete_active = True
-    await ctx.message.delete()
-    bulk_delete_active = False
+    database_url = os.getenv('DATABASE_URL')
+    if not database_url:
+        print("❌ DATABASE_URL not found!")
+        return
     
-    # مثال 1: لوق دخول
-    embed1 = discord.Embed(
-        title="دخول السيرفر",
-        color=0x00ff00,
-        timestamp=datetime.now()
-    )
-    embed1.add_field(name="العضو", value=f"{ctx.author.mention} ({ctx.author.id})", inline=False)
-    embed1.add_field(name="تاريخ إنشاء الحساب", value=ctx.author.created_at.strftime("%Y-%m-%d %H:%M"), inline=True)
-    embed1.add_field(name="عدد الأعضاء", value=ctx.guild.member_count, inline=True)
-    embed1.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
-    embed1.set_footer(text="نظام الحماية • MSA")
-    await ctx.send(embed=embed1)
-    
-    await asyncio.sleep(1)
-    
-    # مثال 2: لوق حماية
-    embed2 = discord.Embed(
-        title="لوق الحماية - ميوت سبام",
-        color=0xff6600,
-        timestamp=datetime.now()
-    )
-    embed2.add_field(name="العضو", value=f"{ctx.author.mention} ({ctx.author.id})", inline=False)
-    embed2.add_field(name="السبب", value="إرسال 5 رسائل في 10 ثواني", inline=False)
-    embed2.add_field(name="المدة", value="30 دقيقة", inline=True)
-    embed2.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
-    embed2.set_footer(text="نظام الحماية • MSA")
-    await ctx.send(embed=embed2)
-    
-    await asyncio.sleep(1)
-    
-    # مثال 3: لوق باند
-    embed3 = discord.Embed(
-        title="باند عضو",
-        color=0xff0000,
-        timestamp=datetime.now()
-    )
-    embed3.add_field(name="المسؤول", value=f"{ctx.author.mention} ({ctx.author.id})", inline=False)
-    embed3.add_field(name="العضو", value="TestUser#1234 (123456789)", inline=False)
-    embed3.add_field(name="السبب", value="مخالفة قوانين السيرفر", inline=False)
-    embed3.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
-    embed3.set_footer(text="نظام الحماية • MSA")
-    await ctx.send(embed=embed3)
+    trainer = DeepLearningTrainerV2(database_url)
+    trainer.run_continuous(interval_hours=6)
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def restart(ctx):
-    """إعادة تشغيل البوت"""
-    await ctx.send("🔄 إعادة تشغيل البوت...")
-    await bot.close()
-    os.execv(sys.executable, ['python'] + sys.argv)
-
-@clear.error
-async def clear_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ تحتاج صلاحية Manage Messages لاستخدام هذا الأمر!", delete_after=5)
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send("❌ استخدام خاطئ! مثال: `!clear` أو `!clear 50`", delete_after=5)
-
-@bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You need Administrator permissions to use this command!", delete_after=5)
-
-# تشغيل البوت
-print("🚀 Starting verification & protection bot...")
-bot.run(TOKEN)
+if __name__ == "__main__":
+    main()
