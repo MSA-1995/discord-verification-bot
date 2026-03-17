@@ -14,7 +14,7 @@ except Exception as e:
 
 # ========== AUTO-INSTALL DEPENDENCIES ==========
 def install_dependencies():
-    required = ['discord.py', 'cryptography']
+    required = ['discord.py', 'cryptography', 'requests']
     for package in required:
         try:
             if package == 'discord.py':
