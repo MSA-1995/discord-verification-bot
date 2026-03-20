@@ -71,8 +71,8 @@ class Logging(commands.Cog):
 
         embed = discord.Embed(title="دخول السيرفر", color=0x00ff00, timestamp=datetime.now())
         embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
-        embed.add_field(name="تاريخ الحساب", value=member.created_at.strftime("%Y-%m-%d %H:%M"), inline=True)
-        embed.add_field(name="الأعضاء", value=member.guild.member_count, inline=True)
+        embed.add_field(name="تاريخ إنشاء الحساب", value=member.created_at.strftime("%Y-%m-%d %H:%M"), inline=True)
+        embed.add_field(name="عدد الأعضاء", value=member.guild.member_count, inline=True)
         embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
         embed.set_footer(text="نظام الحماية • MSA")
         await self.send_log(member.guild, embed)
@@ -84,7 +84,9 @@ class Logging(commands.Cog):
             if entry.target.id == channel.id:
                 embed = discord.Embed(title="إنشاء روم", color=0x00ff00, timestamp=datetime.now())
                 embed.add_field(name="الشخص", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-                embed.add_field(name="الروم", value=channel.name, inline=True)
+                embed.add_field(name="اسم الروم", value=channel.name, inline=True)
+                embed.add_field(name="ID الروم", value=channel.id, inline=True)
+                embed.set_thumbnail(url=channel.guild.icon.url if channel.guild.icon else None)
                 embed.set_footer(text="نظام الحماية • MSA")
                 await self.send_log(channel.guild, embed)
                 break
@@ -96,7 +98,9 @@ class Logging(commands.Cog):
             if entry.target.id == role.id:
                 embed = discord.Embed(title="إنشاء رول", color=0x00ff00, timestamp=datetime.now())
                 embed.add_field(name="الشخص", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-                embed.add_field(name="الرول", value=role.name, inline=True)
+                embed.add_field(name="اسم الرول", value=role.name, inline=True)
+                embed.add_field(name="ID الرول", value=role.id, inline=True)
+                embed.set_thumbnail(url=role.guild.icon.url if role.guild.icon else None)
                 embed.set_footer(text="نظام الحماية • MSA")
                 await self.send_log(role.guild, embed)
                 break
@@ -108,7 +112,9 @@ class Logging(commands.Cog):
             if entry.target.id == channel.id:
                 embed = discord.Embed(title="حذف روم", color=0xff0000, timestamp=datetime.now())
                 embed.add_field(name="الشخص", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-                embed.add_field(name="الروم", value=channel.name, inline=True)
+                embed.add_field(name="اسم الروم", value=channel.name, inline=True)
+                embed.add_field(name="ID الروم", value=channel.id, inline=True)
+                embed.set_thumbnail(url=channel.guild.icon.url if channel.guild.icon else None)
                 embed.set_footer(text="نظام الحماية • MSA")
                 await self.send_log(channel.guild, embed)
                 break
@@ -122,6 +128,7 @@ class Logging(commands.Cog):
                 embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
                 embed.add_field(name="العضو", value=f"{user.mention} ({user.id})", inline=False)
                 embed.add_field(name="السبب", value=entry.reason or "لا يوجد", inline=False)
+                embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
                 embed.set_footer(text="نظام الحماية • MSA")
                 await self.send_log(guild, embed)
                 break
@@ -134,6 +141,7 @@ class Logging(commands.Cog):
                 embed = discord.Embed(title="فك باند", color=0x00ff00, timestamp=datetime.now())
                 embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
                 embed.add_field(name="العضو", value=f"{user.name} ({user.id})", inline=False)
+                embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
                 embed.set_footer(text="نظام الحماية • MSA")
                 await self.send_log(guild, embed)
                 break
@@ -147,6 +155,7 @@ class Logging(commands.Cog):
                 embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
                 embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
                 embed.add_field(name="السبب", value=entry.reason or "لا يوجد", inline=False)
+                embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
                 embed.set_footer(text="نظام الحماية • MSA")
                 await self.send_log(member.guild, embed)
                 break
@@ -173,6 +182,7 @@ class Logging(commands.Cog):
         embed.add_field(name="الكاتب", value=f"{message.author.mention} ({message.author.id})", inline=False)
         embed.add_field(name="المحتوى", value=message.content[:1024] if message.content else "لا يوجد", inline=False)
         embed.add_field(name="الروم", value=message.channel.mention, inline=True)
+        embed.set_thumbnail(url=message.guild.icon.url if message.guild.icon else None)
         embed.set_footer(text="نظام الحماية • MSA")
         await self.send_log(message.guild, embed)
 
@@ -185,6 +195,8 @@ class Logging(commands.Cog):
         embed.add_field(name="الشخص", value=f"{before.author.mention} ({before.author.id})", inline=False)
         embed.add_field(name="قبل", value=before.content[:1024] if before.content else "لا يوجد", inline=False)
         embed.add_field(name="بعد", value=after.content[:1024] if after.content else "لا يوجد", inline=False)
+        embed.add_field(name="الروم", value=before.channel.mention, inline=True)
+        embed.set_thumbnail(url=before.guild.icon.url if before.guild.icon else None)
         embed.set_footer(text="نظام الحماية • MSA")
         await self.send_log(before.guild, embed)
 
@@ -196,6 +208,7 @@ class Logging(commands.Cog):
             embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
             embed.add_field(name="قبل", value=before.nick or before.name, inline=True)
             embed.add_field(name="بعد", value=after.nick or after.name, inline=True)
+            embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
             embed.set_footer(text="نظام الحماية • MSA")
             await self.send_log(after.guild, embed)
         
@@ -208,6 +221,7 @@ class Logging(commands.Cog):
                 embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
                 embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
                 embed.add_field(name="الرول", value=new_role.mention, inline=True)
+                embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
                 embed.set_footer(text="نظام الحماية • MSA")
                 await self.send_log(after.guild, embed)
                 break
@@ -221,6 +235,7 @@ class Logging(commands.Cog):
                 embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
                 embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
                 embed.add_field(name="الرول", value=removed_role.name, inline=True)
+                embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
                 embed.set_footer(text="نظام الحماية • MSA")
                 await self.send_log(after.guild, embed)
                 break
@@ -232,6 +247,7 @@ class Logging(commands.Cog):
             embed = discord.Embed(title="دخول روم صوتي", color=0x00ff00, timestamp=datetime.now())
             embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
             embed.add_field(name="الروم", value=after.channel.name, inline=True)
+            embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
             embed.set_footer(text="نظام الحماية • MSA")
             await self.send_log(member.guild, embed)
         
@@ -240,6 +256,7 @@ class Logging(commands.Cog):
             embed = discord.Embed(title="خروج من روم صوتي", color=0xff0000, timestamp=datetime.now())
             embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
             embed.add_field(name="الروم", value=before.channel.name, inline=True)
+            embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
             embed.set_footer(text="نظام الحماية • MSA")
             await self.send_log(member.guild, embed)
         
@@ -249,6 +266,7 @@ class Logging(commands.Cog):
             embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
             embed.add_field(name="من", value=before.channel.name, inline=True)
             embed.add_field(name="إلى", value=after.channel.name, inline=True)
+            embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
             embed.set_footer(text="نظام الحماية • MSA")
             await self.send_log(member.guild, embed)
 
