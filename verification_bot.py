@@ -83,7 +83,7 @@ class MSABot(commands.Bot):
 
     async def setup_hook(self):
         # تحميل الـ Cogs
-        extensions = ['cogs.verification', 'cogs.protection', 'cogs.log_system']
+        extensions = ['verification', 'protection', 'log_system']
         for ext in extensions:
             try:
                 await self.load_extension(ext)
@@ -94,7 +94,7 @@ class MSABot(commands.Bot):
         # إعادة تحميل زر التوثيق (Persistent View)
         # ملاحظة: يجب استيراد VerifyButton هنا ليعمل الزر بعد إعادة التشغيل
         try:
-            from cogs.verification import VerifyButton
+            from verification import VerifyButton
             self.add_view(VerifyButton())
             print("✅ Persistent views loaded")
         except Exception as e:
