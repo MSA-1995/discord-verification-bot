@@ -43,6 +43,8 @@ class Protection(commands.Cog):
                 embed = discord.Embed(title="لوق الحماية - ميوت روابط", color=0xff6600, timestamp=datetime.now())
                 embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
                 embed.add_field(name="المحتوى", value=message.content[:1024], inline=False)
+                embed.add_field(name="المدة", value=f"{MUTE_DURATION} دقيقة", inline=True)
+                embed.set_thumbnail(url=message.guild.icon.url if message.guild.icon else None)
                 embed.set_footer(text="نظام الحماية • MSA")
                 await self.send_security_log(message.guild, embed)
             except:
@@ -66,6 +68,8 @@ class Protection(commands.Cog):
                 embed = discord.Embed(title="لوق الحماية - ميوت سبام", color=0xff6600, timestamp=datetime.now())
                 embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
                 embed.add_field(name="السبب", value=f"إرسال {SPAM_THRESHOLD} رسائل في {SPAM_TIMEFRAME} ثواني", inline=False)
+                embed.add_field(name="المدة", value=f"{MUTE_DURATION} دقيقة", inline=True)
+                embed.set_thumbnail(url=message.guild.icon.url if message.guild.icon else None)
                 embed.set_footer(text="نظام الحماية • MSA")
                 await self.send_security_log(message.guild, embed)
                 
@@ -94,6 +98,7 @@ class Protection(commands.Cog):
                         embed = discord.Embed(title="لوق الحماية - طرد بوت", color=0xff0000, timestamp=datetime.now())
                         embed.add_field(name="البوت", value=f"{member.name} ({member.id})", inline=False)
                         embed.add_field(name="من أضافه", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+                        embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
                         embed.set_footer(text="نظام الحماية • MSA")
                         await self.send_security_log(member.guild, embed)
                     except:
@@ -123,6 +128,7 @@ class Protection(commands.Cog):
                         embed = discord.Embed(title="لوق الحماية - باند", color=0xff0000, timestamp=datetime.now())
                         embed.add_field(name="الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
                         embed.add_field(name="السبب", value="إنشاء روم غير مصرح به", inline=False)
+                        embed.set_thumbnail(url=channel.guild.icon.url if channel.guild.icon else None)
                         embed.set_footer(text="نظام الحماية • MSA")
                         await self.send_security_log(channel.guild, embed)
                     except:
@@ -150,6 +156,7 @@ class Protection(commands.Cog):
                             embed = discord.Embed(title="لوق الحماية - باند", color=0xff0000, timestamp=datetime.now())
                             embed.add_field(name="الشخص", value=f"{creator.mention} ({creator.id})", inline=False)
                             embed.add_field(name="السبب", value="إنشاء رول غير مصرح به", inline=False)
+                            embed.set_thumbnail(url=role.guild.icon.url if role.guild.icon else None)
                             embed.set_footer(text="نظام الحماية • MSA")
                             await self.send_security_log(role.guild, embed)
                     except:
