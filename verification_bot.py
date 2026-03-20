@@ -32,6 +32,8 @@ import discord
 from discord.ext import commands
 import os
 import asyncio
+import requests
+from datetime import datetime
 from config_encrypted import get_discord_token, get_critical_webhook
 
 # قراءة الـ Token من التشفير
@@ -81,7 +83,7 @@ class MSABot(commands.Bot):
 
     async def setup_hook(self):
         # تحميل الـ Cogs
-        extensions = ['cogs.verification', 'cogs.protection', 'cogs.logging']
+        extensions = ['cogs.verification', 'cogs.protection', 'cogs.log_system']
         for ext in extensions:
             try:
                 await self.load_extension(ext)
