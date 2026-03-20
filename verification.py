@@ -66,6 +66,13 @@ class Verification(commands.Cog):
         await ctx.send(embed=embed, view=VerifyButton())
         print(f"✅ Verification message created in #{ctx.channel.name}")
 
+    @commands.command()
+    @commands.has_permissions(administrator=True)
+    async def shutdown(self, ctx):
+        """إيقاف تشغيل البوت عن بعد (للحالات الطارئة)"""
+        await ctx.send("🛑 جاري إيقاف البوت... سيتم قطع الاتصال فوراً.")
+        await self.bot.close()
+
     @commands.Cog.listener()
     async def on_member_join(self, member):
         """إعطاء رول Welcome تلقائياً"""
