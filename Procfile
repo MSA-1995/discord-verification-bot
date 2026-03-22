@@ -1,1 +1,1 @@
-web: python3 verification_bot.py
+worker: python verification_bot.py
