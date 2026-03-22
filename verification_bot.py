@@ -105,11 +105,33 @@ class MSABot(commands.Bot):
         print(f"📊 Connected to {len(self.guilds)} server(s)")
         print("🛡️ Protection System: ACTIVE (Cogs Mode)")
 
+from threading import Thread
+from flask import Flask
+
+# ========== WEB SERVER (for Health Checks) ==========
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is alive", 200
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+# ... (rest of the bot code)
+
 bot = MSABot()
 
 # تشغيل البوت
 print("🚀 Starting verification & protection bot...")
 try:
+    # Start the web server in a background thread
+    web_thread = Thread(target=run_web_server)
+    web_thread.daemon = True
+    web_thread.start()
+    print(f"🌐 Health check server started on port {os.environ.get('PORT', 8080)}")
+    
     bot.run(TOKEN)
 except Exception as e:
     print(f"❌ Bot crashed: {e}")
