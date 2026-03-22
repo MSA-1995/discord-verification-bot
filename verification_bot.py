@@ -132,7 +132,14 @@ try:
     web_thread.start()
     print(f"🌐 Health check server started on port {os.environ.get('PORT', 8080)}")
     
+    print("🤖 Attempting to connect to Discord...")
     bot.run(TOKEN)
+    # If the script reaches here, it means bot.run() exited cleanly.
+    print("🔴 WARN: bot.run() has exited. The bot is no longer running.")
+
 except Exception as e:
     print(f"❌ Bot crashed: {e}")
     send_critical_alert("Bot Crash", "Verification Bot stopped unexpectedly", str(e))
+
+finally:
+    print("🏁 Script execution finished.")
