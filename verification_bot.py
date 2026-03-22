@@ -3,12 +3,10 @@ import subprocess
 import sys
 try:
     print("🔄 Checking pip updates...")
-    result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'], 
-                           capture_output=True, check=False, timeout=30, text=True)
-    if "Successfully installed" in result.stdout:
-        print("✅ pip updated successfully")
-    else:
-        print("✅ pip is up to date")
+    # Make subprocess verbose to see output in logs and fail on error
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'], 
+                   check=True, timeout=60)
+    print("✅ pip updated successfully")
 except Exception as e:
     print(f"⚠️ pip update skipped: {e}")
 
@@ -23,8 +21,9 @@ def install_dependencies():
                 __import__(package)
         except ImportError:
             print(f"📦 Installing {package}...")
+            # Make subprocess verbose and fail on error
             subprocess.run([sys.executable, '-m', 'pip', 'install', package], 
-                         shell=False, capture_output=True)
+                         check=True)
 
 install_dependencies()
 
