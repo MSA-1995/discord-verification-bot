@@ -1,32 +1,3 @@
-# ========== AUTO-UPDATE PIP ==========
-import subprocess
-import sys
-try:
-    print("🔄 Checking pip updates...")
-    # Make subprocess verbose to see output in logs and fail on error
-    subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'], 
-                   check=True, timeout=60)
-    print("✅ pip updated successfully")
-except Exception as e:
-    print(f"⚠️ pip update skipped: {e}")
-
-# ========== AUTO-INSTALL DEPENDENCIES ==========
-def install_dependencies():
-    required = ['discord.py', 'cryptography', 'requests']
-    for package in required:
-        try:
-            if package == 'discord.py':
-                __import__('discord')
-            else:
-                __import__(package)
-        except ImportError:
-            print(f"📦 Installing {package}...")
-            # Make subprocess verbose and fail on error
-            subprocess.run([sys.executable, '-m', 'pip', 'install', package], 
-                         check=True)
-
-install_dependencies()
-
 import discord
 from discord.ext import commands
 import os
