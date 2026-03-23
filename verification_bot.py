@@ -1,6 +1,8 @@
 # ========== AUTO-UPDATE PIP ==========
 import subprocess
 import sys
+print("🚀 Bot starting...", flush=True)
+sys.stdout.flush()
 try:
     print("🔄 Checking pip updates...")
     result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'], 
@@ -38,7 +40,9 @@ from config_encrypted import get_discord_token, get_critical_webhook
 
 # قراءة الـ Token من التشفير
 TOKEN = os.getenv('DISCORD_TOKEN') or get_discord_token()
+print(f"🔑 Token loaded: {'✅' if TOKEN else '❌'}", flush=True)
 CRITICAL_WEBHOOK = get_critical_webhook()
+print(f"🔗 Webhook loaded: {'✅' if CRITICAL_WEBHOOK else '❌'}", flush=True)
 
 def send_critical_alert(error_type, message, details=None):
     """Send critical error alert to Discord"""
