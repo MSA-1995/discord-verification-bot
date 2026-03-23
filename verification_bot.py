@@ -1,3 +1,33 @@
+# ========== AUTO-UPDATE PIP ==========
+import subprocess
+import sys
+try:
+    print("🔄 Checking pip updates...")
+    result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'], 
+                           capture_output=True, check=False, timeout=30, text=True)
+    if "Successfully installed" in result.stdout:
+        print("✅ pip updated successfully")
+    else:
+        print("✅ pip is up to date")
+except Exception as e:
+    print(f"⚠️ pip update skipped: {e}")
+
+# ========== AUTO-INSTALL DEPENDENCIES ==========
+def install_dependencies():
+    required = ['discord.py', 'cryptography', 'requests']
+    for package in required:
+        try:
+            if package == 'discord.py':
+                __import__('discord')
+            else:
+                __import__(package)
+        except ImportError:
+            print(f"📦 Installing {package}...")
+            subprocess.run([sys.executable, '-m', 'pip', 'install', package], 
+                         shell=False, capture_output=True)
+
+install_dependencies()
+
 import discord
 from discord.ext import commands
 import os
@@ -7,7 +37,7 @@ from datetime import datetime
 from config_encrypted import get_discord_token, get_critical_webhook
 
 # قراءة الـ Token من التشفير
-TOKEN = get_discord_token()
+TOKEN = os.getenv('DISCORD_TOKEN') or get_discord_token()
 CRITICAL_WEBHOOK = get_critical_webhook()
 
 def send_critical_alert(error_type, message, details=None):
@@ -75,41 +105,12 @@ class MSABot(commands.Bot):
         print(f"📊 Connected to {len(self.guilds)} server(s)")
         print("🛡️ Protection System: ACTIVE (Cogs Mode)")
 
-from threading import Thread
-from flask import Flask
-
-# ========== WEB SERVER (for Health Checks) ==========
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Bot is alive", 200
-
-def run_web_server():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
-# ... (rest of the bot code)
-
 bot = MSABot()
 
 # تشغيل البوت
 print("🚀 Starting verification & protection bot...")
 try:
-    # Start the web server in a background thread
-    web_thread = Thread(target=run_web_server)
-    web_thread.daemon = True
-    web_thread.start()
-    print(f"🌐 Health check server started on port {os.environ.get('PORT', 8080)}")
-    
-    print("🤖 Attempting to connect to Discord...")
     bot.run(TOKEN)
-    # If the script reaches here, it means bot.run() exited cleanly.
-    print("🔴 WARN: bot.run() has exited. The bot is no longer running.")
-
 except Exception as e:
     print(f"❌ Bot crashed: {e}")
     send_critical_alert("Bot Crash", "Verification Bot stopped unexpectedly", str(e))
-
-finally:
-    print("🏁 Script execution finished.")
