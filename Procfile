@@ -1,2 +1,1 @@
-worker:python verification_bot.py
-
+worker: python verification_bot.py
