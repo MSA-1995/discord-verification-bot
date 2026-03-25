@@ -91,18 +91,8 @@ class MSABot(commands.Bot):
             except Exception as e:
                 print(f"❌ Failed to load extension {ext}: {e}")
         
-        # إعادة تحميل زر التوثيق (Persistent View)
-        try:
-            # نحتاج إلى نسخة الـ cog لتمريرها إلى الـ view
-            verification_cog = self.get_cog('Verification')
-            if verification_cog:
-                from verification import VerifyButton
-                self.add_view(VerifyButton(verification_cog)) # تمرير نسخة الـ cog
-                print("✅ Persistent views loaded")
-            else:
-                print("⚠️ Could not find 'Verification' cog to load persistent views.")
-        except Exception as e:
-            print(f"⚠️ Could not load persistent views: {e}")
+        # The library handles persistent views automatically.
+        # The manual add_view call is no longer needed and was causing the error.
 
     async def on_ready(self):
         print(f"✅ {self.user} is online and ready!")
