@@ -22,7 +22,9 @@ ENCRYPTION_KEY = "sBxWnLSyyCY9ib9Yo100AR4Se6kC9sAXcDfqHox9kKc="
 def get_discord_token():
     """فك تشفير Discord Token"""
     try:
-        cipher = Fernet(ENCRYPTION_KEY.encode())
+        # حاول قراءة المفتاح من متغيرات البيئة أولاً، وإلا استخدم المفتاح الثابت
+        _KEY = os.getenv('ENCRYPTION_KEY', ENCRYPTION_KEY)
+        cipher = Fernet(_KEY.encode())
         decrypted = cipher.decrypt(ENCRYPTED_TOKEN.encode())
         return decrypted.decode()
     except Exception as e:
@@ -44,5 +46,6 @@ def get_critical_webhook():
         fernet = Fernet(key)
         webhook = fernet.decrypt(ENCRYPTED_CRITICAL_WEBHOOK.encode()).decode()
         return webhook
-    except:
+    except Exception as e:
+        print(f"❌ Critical webhook decryption error: {e}")
         return None
