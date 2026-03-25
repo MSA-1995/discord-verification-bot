@@ -9,7 +9,7 @@ class VerifyButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Verify Me", style=discord.ButtonStyle.green, custom_id="verify_button")
+    @discord.ui.button(label="Verify Me", style=discord.ButtonStyle.green, custom_id="verify_button_v2")
     async def verify(self, interaction: discord.Interaction, button: discord.ui.Button):
         # نحصل على الـ cog من البوت في كل مرة لضمان عمل الأزرار الدائمة
         cog = interaction.client.get_cog('Verification')
