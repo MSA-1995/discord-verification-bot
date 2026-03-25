@@ -1,123 +1,116 @@
+# ========== AUTO-UPDATE PIP ==========
+import subprocess
+import sys
+try:
+    print("🔄 Checking pip updates...")
+    result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'], 
+                           capture_output=True, check=False, timeout=30, text=True)
+    if "Successfully installed" in result.stdout:
+        print("✅ pip updated successfully")
+    else:
+        print("✅ pip is up to date")
+except Exception as e:
+    print(f"⚠️ pip update skipped: {e}")
+
+# ========== AUTO-INSTALL DEPENDENCIES ==========
+def install_dependencies():
+    required = ['discord.py', 'cryptography', 'requests']
+    for package in required:
+        try:
+            if package == 'discord.py':
+                __import__('discord')
+            else:
+                __import__(package)
+        except ImportError:
+            print(f"📦 Installing {package}...")
+            subprocess.run([sys.executable, '-m', 'pip', 'install', package], 
+                         shell=False, capture_output=True)
+
+install_dependencies()
+
 import discord
 from discord.ext import commands
-from datetime import datetime
+import os
 import asyncio
+import requests
+from datetime import datetime
+from config_encrypted import get_discord_token, get_critical_webhook
 
-NEW_ACCOUNT_DAYS = 30  # الحسابات الأحدث من 30 يوم
+# قراءة الـ Token من التشفير
+TOKEN = get_discord_token()
+CRITICAL_WEBHOOK = get_critical_webhook()
 
-class VerifyButton(discord.ui.View):
-    def __init__(self, cog):
-        super().__init__(timeout=None)
-        self.cog = cog  # ربط الـ cog لاستخدام queue
+def send_critical_alert(error_type, message, details=None):
+    """Send critical error alert to Discord"""
+    if not CRITICAL_WEBHOOK:
+        return
+    
+    fields = [
+        {"name": "Bot", "value": "Verification Bot", "inline": True},
+        {"name": "Error Type", "value": error_type, "inline": True},
+        {"name": "Timestamp", "value": datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "inline": True},
+        {"name": "Message", "value": message, "inline": False}
+    ]
+    
+    if details:
+        fields.append({"name": "Details", "value": str(details)[:1000], "inline": False})
+    
+    embed = {
+        "title": "🚨 CRITICAL ALERT",
+        "color": 0xff0000,
+        "fields": fields,
+        "footer": {"text": "MSA Verification Bot • System Alerts"},
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    try:
+        requests.post(CRITICAL_WEBHOOK, json={"embeds": [embed]}, timeout=5)
+    except:
+        pass
 
-    @discord.ui.button(label="Verify Me", style=discord.ButtonStyle.green, custom_id="verify_button")
-    async def verify(self, interaction: discord.Interaction, button: discord.ui.Button):
-        member = interaction.user
+if not TOKEN:
+    print("❌ Error: Failed to decrypt DISCORD_TOKEN!")
+    print("Please check ENCRYPTION_KEY.")
+    exit(1)
 
-        if member.bot:
-            await interaction.response.send_message("❌ Bots cannot be verified!", ephemeral=True)
-            return
+class MSABot(commands.Bot):
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.members = True
+        intents.message_content = True
+        intents.guilds = True
+        super().__init__(command_prefix="!", intents=intents, help_command=None)
 
-        account_age = (datetime.now(member.created_at.tzinfo) - member.created_at).days
-        is_new = account_age < NEW_ACCOUNT_DAYS
-        has_avatar = member.avatar is not None
-
-        # تحديد الرولات
-        verified_role = discord.utils.get(interaction.guild.roles, name="Verified")
-        if not verified_role:
-            verified_role = await interaction.guild.create_role(name="Verified")
-
-        # وضع كل عملية إعطاء رول في queue
-        await self.cog.queue_task(self.add_roles, member, [verified_role])
-
-        msg = "✅ You have been verified!"
-        if is_new or not has_avatar:
-            watched_role = discord.utils.get(interaction.guild.roles, name="Watched")
-            if not watched_role:
-                watched_role = await interaction.guild.create_role(
-                    name="Watched",
-                    color=discord.Color.orange()
-                )
-            await self.cog.queue_task(self.add_roles, member, [watched_role])
-            msg = "✅ Verified! ⚠️ You are under strict monitoring."
-
-        # الرد على المستخدم
-        await interaction.response.send_message(msg, ephemeral=True)
-
-    async def add_roles(self, member, roles):
-        """إضافة الرولات مع حماية من أي خطأ"""
-        try:
-            await member.add_roles(*roles)
-            print(f"✅ Added roles {[r.name for r in roles]} to {member.name}")
-        except Exception as e:
-            print(f"⚠️ Error adding roles to {member.name}: {e}")
-
-class Verification(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-        self.task_queue = asyncio.Queue()
-        self.bot.loop.create_task(self.worker())
-
-    async def worker(self):
-        """معالجة المهام في الـ queue مع فاصل زمني لتجنب 429"""
-        while True:
-            func, args = await self.task_queue.get()
+    async def setup_hook(self):
+        # تحميل الـ Cogs
+        extensions = ['verification', 'protection', 'log_system']
+        for ext in extensions:
             try:
-                await func(*args)
+                await self.load_extension(ext)
+                print(f"✅ Loaded extension: {ext}")
             except Exception as e:
-                print(f"⚠️ Error in queue task: {e}")
-            await asyncio.sleep(1)  # فاصل زمني 1 ثانية بين كل مهمة
-            self.task_queue.task_done()
-
-    async def queue_task(self, func, *args):
-        """إضافة مهمة للـ queue"""
-        await self.task_queue.put((func, args))
-
-    @commands.command()
-    @commands.has_permissions(administrator=True)
-    async def setup_verify(self, ctx):
-        """أمر لإنشاء رسالة التوثيق مع زر"""
-        await ctx.message.delete()
-
-        embed = discord.Embed(
-            title="توثيق السيرفر",
-            description="اضغط على زر **توثيق** أدناه للحصول على صلاحية الوصول لبقية السيرفر!\n\n**الحماية النشطة**",
-            color=0x00ff00
-        )
-        embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
-        embed.set_footer(text="نظام التوثيق والحماية • MSA")
-
-        await ctx.send(embed=embed, view=VerifyButton(self))
-        print(f"✅ Verification message created in #{ctx.channel.name}")
-
-    @commands.command()
-    @commands.has_permissions(administrator=True)
-    async def shutdown(self, ctx):
-        """إيقاف تشغيل البوت عن بعد (للحالات الطارئة)"""
-        await ctx.send("🛑 جاري إيقاف البوت... سيتم قطع الاتصال فوراً.")
-        await self.bot.close()
-
-    @commands.Cog.listener()
-    async def on_member_join(self, member):
-        """إعطاء رول Welcome تلقائياً باستخدام queue"""
-        if member.bot:
-            return
-        await self.queue_task(self.add_welcome_role, member)
-
-    async def add_welcome_role(self, member):
+                print(f"❌ Failed to load extension {ext}: {e}")
+        
+        # إعادة تحميل زر التوثيق (Persistent View)
+        # ملاحظة: يجب استيراد VerifyButton هنا ليعمل الزر بعد إعادة التشغيل
         try:
-            welcome_role = discord.utils.get(member.guild.roles, name="Welcome")
-            if not welcome_role:
-                welcome_role = await member.guild.create_role(
-                    name="Welcome",
-                    color=discord.Color.blue(),
-                    reason="رول ترحيب تلقائي للأعضاء الجدد"
-                )
-                print(f"✅ Created Welcome role")
-            await member.add_roles(welcome_role)
-            print(f"✅ Gave Welcome role to {member.name}")
+            from verification import VerifyButton
+            self.add_view(VerifyButton())
+            print("✅ Persistent views loaded")
         except Exception as e:
-            print(f"⚠️ Error giving Welcome role: {e}")
+            print(f"⚠️ Could not load persistent views: {e}")
 
-async def setup(bot):
-    await bot.add_cog(Verification(bot))
+    async def on_ready(self):
+        print(f"✅ {self.user} is online and ready!")
+        print(f"📊 Connected to {len(self.guilds)} server(s)")
+        print("🛡️ Protection System: ACTIVE (Cogs Mode)")
+
+bot = MSABot()
+
+# تشغيل البوت
+print("🚀 Starting verification & protection bot...")
+try:
+    bot.run(TOKEN)
+except Exception as e:
+    print(f"❌ Bot crashed: {e}")
+    send_critical_alert("Bot Crash", "Verification Bot stopped unexpectedly", str(e))
