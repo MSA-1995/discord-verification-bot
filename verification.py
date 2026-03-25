@@ -60,6 +60,7 @@ class VerifyButton(discord.ui.View):
 
 class Verification(commands.Cog):
     def __init__(self, bot):
+        print("\n>>> [DEBUG] Verification Cog v2.0 Initialized! If you see this, the code is updated. <<<")
         self.bot = bot
         self.task_queue = asyncio.Queue()
         self.bot.loop.create_task(self.worker())
