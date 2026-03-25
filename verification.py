@@ -6,15 +6,17 @@ import asyncio
 NEW_ACCOUNT_DAYS = 30  # الحسابات الأحدث من 30 يوم
 
 class VerifyButton(discord.ui.View):
-    def __init__(self, *, cog=None):
+    def __init__(self):
         super().__init__(timeout=None)
-        self.cog = cog
 
     @discord.ui.button(label="Verify Me", style=discord.ButtonStyle.green, custom_id="verify_button")
     async def verify(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # إذا تم إعادة تحميل الواجهة، فلن يكون cog موجودًا، لذا نحصل عليه من البوت
-        if self.cog is None:
-            self.cog = interaction.client.get_cog('Verification')
+        # نحصل على الـ cog من البوت في كل مرة لضمان عمل الأزرار الدائمة
+        cog = interaction.client.get_cog('Verification')
+        if not cog:
+            # رسالة خطأ إذا لم يتم العثور على الـ cog (حالة نادرة)
+            await interaction.response.send_message("Error: Verification system is offline.", ephemeral=True)
+            return
 
         member = interaction.user
 
@@ -32,7 +34,7 @@ class VerifyButton(discord.ui.View):
             verified_role = await interaction.guild.create_role(name="Verified")
 
         # وضع كل عملية إعطاء رول في queue
-        await self.cog.queue_task(self.add_roles, member, [verified_role])
+        await cog.queue_task(self.add_roles, member, [verified_role])
 
         msg = "✅ You have been verified!"
         if is_new or not has_avatar:
@@ -42,7 +44,7 @@ class VerifyButton(discord.ui.View):
                     name="Watched",
                     color=discord.Color.orange()
                 )
-            await self.cog.queue_task(self.add_roles, member, [watched_role])
+            await cog.queue_task(self.add_roles, member, [watched_role])
             msg = "✅ Verified! ⚠️ You are under strict monitoring."
 
         # الرد على المستخدم
@@ -91,7 +93,7 @@ class Verification(commands.Cog):
         embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
         embed.set_footer(text="نظام التوثيق والحماية • MSA")
 
-        await ctx.send(embed=embed, view=VerifyButton(self))
+        await ctx.send(embed=embed, view=VerifyButton())
         print(f"✅ Verification message created in #{ctx.channel.name}")
 
     @commands.command()
