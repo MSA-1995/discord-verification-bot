@@ -92,11 +92,15 @@ class MSABot(commands.Bot):
                 print(f"❌ Failed to load extension {ext}: {e}")
         
         # إعادة تحميل زر التوثيق (Persistent View)
-        # ملاحظة: يجب استيراد VerifyButton هنا ليعمل الزر بعد إعادة التشغيل
         try:
-            from verification import VerifyButton
-            self.add_view(VerifyButton())
-            print("✅ Persistent views loaded")
+            # نحتاج إلى نسخة الـ cog لتمريرها إلى الـ view
+            verification_cog = self.get_cog('Verification')
+            if verification_cog:
+                from verification import VerifyButton
+                self.add_view(VerifyButton(verification_cog)) # تمرير نسخة الـ cog
+                print("✅ Persistent views loaded")
+            else:
+                print("⚠️ Could not find 'Verification' cog to load persistent views.")
         except Exception as e:
             print(f"⚠️ Could not load persistent views: {e}")
 
