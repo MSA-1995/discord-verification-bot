@@ -28,23 +28,16 @@ def get_discord_token():
         decrypted = cipher.decrypt(ENCRYPTED_TOKEN.encode())
         return decrypted.decode()
     except Exception as e:
-        print(f"❌ Decryption error: {e}")
+        print(f"❌ Token decryption error: {e}")
         return None
 
 def get_critical_webhook():
     """فك تشفير Critical Webhook"""
     try:
+        # استخدام نفس طريقة فك التشفير البسيطة للتوكن
         _KEY = os.getenv('ENCRYPTION_KEY', ENCRYPTION_KEY)
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=b'binance_bot_salt_2026',
-            iterations=100000,
-            backend=default_backend()
-        )
-        key = base64.urlsafe_b64encode(kdf.derive(_KEY.encode()))
-        fernet = Fernet(key)
-        webhook = fernet.decrypt(ENCRYPTED_CRITICAL_WEBHOOK.encode()).decode()
+        cipher = Fernet(_KEY.encode())
+        webhook = cipher.decrypt(ENCRYPTED_CRITICAL_WEBHOOK.encode()).decode()
         return webhook
     except Exception as e:
         print(f"❌ Critical webhook decryption error: {e}")
