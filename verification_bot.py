@@ -3,8 +3,8 @@ import subprocess
 import sys
 try:
     print("🔄 Checking pip updates...")
-    result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'], 
-                           capture_output=True, check=False, timeout=30, text=True)
+    result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'],
+                            capture_output=True, check=False, timeout=30, text=True)
     if "Successfully installed" in result.stdout:
         print("✅ pip updated successfully")
     else:
@@ -14,7 +14,8 @@ except Exception as e:
 
 # ========== AUTO-INSTALL DEPENDENCIES ==========
 def install_dependencies():
-    required = ['discord.py', 'cryptography', 'requests']
+    # FIX: استبدلنا requests بـ aiohttp لأنها async وما تجمد الـ event loop
+    required = ['discord.py', 'cryptography', 'aiohttp']
     for package in required:
         try:
             if package == 'discord.py':
@@ -23,16 +24,15 @@ def install_dependencies():
                 __import__(package)
         except ImportError:
             print(f"📦 Installing {package}...")
-            subprocess.run([sys.executable, '-m', 'pip', 'install', package], 
-                         shell=False, capture_output=True)
+            subprocess.run([sys.executable, '-m', 'pip', 'install', package],
+                           shell=False, capture_output=True)
 
 install_dependencies()
 
 import discord
 from discord.ext import commands
-import os
 import asyncio
-import requests
+import aiohttp
 from datetime import datetime
 from config_encrypted import get_discord_token, get_critical_webhook
 
@@ -40,32 +40,33 @@ from config_encrypted import get_discord_token, get_critical_webhook
 TOKEN = get_discord_token()
 CRITICAL_WEBHOOK = get_critical_webhook()
 
-def send_critical_alert(error_type, message, details=None):
-    """Send critical error alert to Discord"""
+# FIX: صارت async بدل blocking requests
+async def send_critical_alert(error_type, message, details=None):
+    """Send critical error alert to Discord (async - لا تجمد الـ event loop)"""
     if not CRITICAL_WEBHOOK:
         return
-    
+
     fields = [
-        {"name": "Bot", "value": "Verification Bot", "inline": True},
-        {"name": "Error Type", "value": error_type, "inline": True},
-        {"name": "Timestamp", "value": datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "inline": True},
-        {"name": "Message", "value": message, "inline": False}
+        {"name": "Bot",        "value": "Verification Bot",                         "inline": True},
+        {"name": "Error Type", "value": error_type,                                  "inline": True},
+        {"name": "Timestamp",  "value": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),"inline": True},
+        {"name": "Message",    "value": message,                                     "inline": False},
     ]
-    
     if details:
         fields.append({"name": "Details", "value": str(details)[:1000], "inline": False})
-    
+
     embed = {
         "title": "🚨 CRITICAL ALERT",
         "color": 0xff0000,
         "fields": fields,
         "footer": {"text": "MSA Verification Bot • System Alerts"},
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
     }
-    
+
     try:
-        requests.post(CRITICAL_WEBHOOK, json={"embeds": [embed]}, timeout=5)
-    except:
+        async with aiohttp.ClientSession() as session:
+            await session.post(CRITICAL_WEBHOOK, json={"embeds": [embed]}, timeout=aiohttp.ClientTimeout(total=5))
+    except Exception:
         pass
 
 if not TOKEN:
@@ -82,17 +83,18 @@ class MSABot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents, help_command=None)
 
     async def setup_hook(self):
-        # تحميل الـ Cogs
+        # FIX: reload بدل load لو الـ Cog موجود أصلاً — يمنع الدبل عند reconnect
         extensions = ['verification', 'protection', 'log_system']
         for ext in extensions:
             try:
-                await self.load_extension(ext)
-                print(f"✅ Loaded extension: {ext}")
+                if ext in self.extensions:
+                    await self.reload_extension(ext)
+                    print(f"🔄 Reloaded extension: {ext}")
+                else:
+                    await self.load_extension(ext)
+                    print(f"✅ Loaded extension: {ext}")
             except Exception as e:
-                print(f"❌ Failed to load extension {ext}: {e}")
-        
-        # The library handles persistent views automatically.
-        # The manual add_view call is no longer needed and was causing the error.
+                print(f"❌ Failed to load/reload extension {ext}: {e}")
 
     async def on_ready(self):
         print(f"✅ {self.user} is online and ready!")
@@ -107,4 +109,5 @@ try:
     bot.run(TOKEN)
 except Exception as e:
     print(f"❌ Bot crashed: {e}")
-    send_critical_alert("Bot Crash", "Verification Bot stopped unexpectedly", str(e))
+    # send_critical_alert هي الآن async، نشغلها بـ asyncio.run
+    asyncio.run(send_critical_alert("Bot Crash", "Verification Bot stopped unexpectedly", str(e)))
