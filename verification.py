@@ -11,10 +11,8 @@ class VerifyButton(discord.ui.View):
 
     @discord.ui.button(label="Verify Me", style=discord.ButtonStyle.green, custom_id="verify_button_v2")
     async def verify(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # نحصل على الـ cog من البوت في كل مرة لضمان عمل الأزرار الدائمة
         cog = interaction.client.get_cog('Verification')
         if not cog:
-            # رسالة خطأ إذا لم يتم العثور على الـ cog (حالة نادرة)
             await interaction.response.send_message("Error: Verification system is offline.", ephemeral=True)
             return
 
@@ -25,15 +23,13 @@ class VerifyButton(discord.ui.View):
             return
 
         account_age = (datetime.now(member.created_at.tzinfo) - member.created_at).days
-        is_new = account_age < NEW_ACCOUNT_DAYS
+        is_new     = account_age < NEW_ACCOUNT_DAYS
         has_avatar = member.avatar is not None
 
-        # تحديد الرولات
         verified_role = discord.utils.get(interaction.guild.roles, name="Verified")
         if not verified_role:
             verified_role = await interaction.guild.create_role(name="Verified")
 
-        # وضع كل عملية إعطاء رول في queue
         await cog.queue_task(self.add_roles, member, [verified_role])
 
         msg = "✅ You have been verified!"
@@ -47,11 +43,9 @@ class VerifyButton(discord.ui.View):
             await cog.queue_task(self.add_roles, member, [watched_role])
             msg = "✅ Verified! ⚠️ You are under strict monitoring."
 
-        # الرد على المستخدم
         await interaction.response.send_message(msg, ephemeral=True)
 
     async def add_roles(self, member, roles):
-        """إضافة الرولات مع حماية من أي خطأ"""
         try:
             await member.add_roles(*roles)
             print(f"✅ Added roles {[r.name for r in roles]} to {member.name}")
@@ -60,10 +54,11 @@ class VerifyButton(discord.ui.View):
 
 class Verification(commands.Cog):
     def __init__(self, bot):
-        print("\n>>> [DEBUG] Verification Cog v2.0 Initialized! If you see this, the code is updated. <<<")
+        print("\n>>> [DEBUG] Verification Cog v2.1 Initialized! <<<")
         self.bot = bot
         self.task_queue = asyncio.Queue()
-        self.bot.loop.create_task(self.worker())
+        # FIX: asyncio.create_task بدل self.bot.loop.create_task (deprecated)
+        asyncio.create_task(self.worker())
 
     async def worker(self):
         """معالجة المهام في الـ queue مع فاصل زمني لتجنب 429"""
@@ -73,7 +68,7 @@ class Verification(commands.Cog):
                 await func(*args)
             except Exception as e:
                 print(f"⚠️ Error in queue task: {e}")
-            await asyncio.sleep(1)  # فاصل زمني 1 ثانية بين كل مهمة
+            await asyncio.sleep(1)
             self.task_queue.task_done()
 
     async def queue_task(self, func, *args):
