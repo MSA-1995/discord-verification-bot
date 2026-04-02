@@ -10,6 +10,28 @@ class Logging(commands.Cog):
         self.bulk_delete_active = False
         self.processed_events = {}
 
+    # =====================================================
+    # FIX 1: دالة مركزية للتحقق من التكرار
+    # =====================================================
+    def _is_duplicate(self, key: str, window: float = 5.0) -> bool:
+        """
+        ترجع True لو نفس الـ event صار خلال آخر `window` ثانية.
+        تُستخدم لمنع الدبل لوقات عند الـ reconnect.
+        """
+        now = datetime.now().timestamp()
+        if key in self.processed_events:
+            if now - self.processed_events[key] < window:
+                return True
+        self.processed_events[key] = now
+
+        # تنظيف الذاكرة لو كبرت
+        if len(self.processed_events) > 500:
+            cutoff = now - 60
+            self.processed_events = {
+                k: v for k, v in self.processed_events.items() if v > cutoff
+            }
+        return False
+
     async def send_log(self, guild, embed):
         """إرسال لوق للروم المخصص"""
         log_channel = discord.utils.get(guild.text_channels, name="📋・logs")
@@ -61,13 +83,9 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
-        event_key = f"member_join_{member.id}_{member.guild.id}"
-        current_time = datetime.now().timestamp()
-        
-        if event_key in self.processed_events:
-            if current_time - self.processed_events[event_key] < 5:
-                return
-        self.processed_events[event_key] = current_time
+        key = f"member_join_{member.id}_{member.guild.id}"
+        if self._is_duplicate(key):
+            return
 
         embed = discord.Embed(title="دخول السيرفر", color=0x00ff00, timestamp=datetime.now())
         embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
@@ -79,6 +97,10 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel):
+        key = f"channel_create_{channel.id}"
+        if self._is_duplicate(key):
+            return
+
         await asyncio.sleep(1)
         async for entry in channel.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_create):
             if entry.target.id == channel.id:
@@ -93,6 +115,10 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_role_create(self, role):
+        key = f"role_create_{role.id}"
+        if self._is_duplicate(key):
+            return
+
         await asyncio.sleep(1)
         async for entry in role.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_create):
             if entry.target.id == role.id:
@@ -107,6 +133,10 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
+        key = f"channel_delete_{channel.id}"
+        if self._is_duplicate(key):
+            return
+
         await asyncio.sleep(1)
         async for entry in channel.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_delete):
             if entry.target.id == channel.id:
@@ -121,6 +151,10 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_ban(self, guild, user):
+        key = f"member_ban_{user.id}_{guild.id}"
+        if self._is_duplicate(key):
+            return
+
         await asyncio.sleep(1)
         async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.ban):
             if entry.target.id == user.id:
@@ -135,6 +169,10 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_unban(self, guild, user):
+        key = f"member_unban_{user.id}_{guild.id}"
+        if self._is_duplicate(key):
+            return
+
         await asyncio.sleep(1)
         async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.unban):
             if entry.target.id == user.id:
@@ -148,6 +186,10 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_kick(self, member):
+        key = f"member_kick_{member.id}_{member.guild.id}"
+        if self._is_duplicate(key):
+            return
+
         await asyncio.sleep(1)
         async for entry in member.guild.audit_logs(limit=1, action=discord.AuditLogAction.kick):
             if entry.target.id == member.id:
@@ -165,18 +207,10 @@ class Logging(commands.Cog):
         if message.author.bot or self.bulk_delete_active:
             return
         
-        message_id = f"{message.id}_{message.channel.id}"
-        current_time = datetime.now().timestamp()
-        
-        if message_id in self.deleted_messages:
-            if current_time - self.deleted_messages[message_id] < 5:
-                return
-        
-        self.deleted_messages[message_id] = current_time
-        
-        # تنظيف الذاكرة
-        if len(self.deleted_messages) > 100:
-            self.deleted_messages = {k:v for k,v in list(self.deleted_messages.items())[-50:]}
+        # FIX 2: استخدام نفس الدالة المركزية بدل كود مكرر
+        key = f"msg_delete_{message.id}_{message.channel.id}"
+        if self._is_duplicate(key):
+            return
         
         embed = discord.Embed(title="حذف رسالة", color=0xff0000, timestamp=datetime.now())
         embed.add_field(name="الكاتب", value=f"{message.author.mention} ({message.author.id})", inline=False)
@@ -189,6 +223,11 @@ class Logging(commands.Cog):
     @commands.Cog.listener()
     async def on_message_edit(self, before, after):
         if before.author.bot or before.content == after.content:
+            return
+        
+        # FIX 3: كانت ناقصة حماية من التكرار بالكامل
+        key = f"msg_edit_{before.id}"
+        if self._is_duplicate(key):
             return
         
         embed = discord.Embed(title="تعديل رسالة", color=0xffff00, timestamp=datetime.now())
@@ -204,46 +243,55 @@ class Logging(commands.Cog):
     async def on_member_update(self, before, after):
         # تغيير الاسم
         if before.nick != after.nick:
-            embed = discord.Embed(title="تغيير الاسم", color=0xffff00, timestamp=datetime.now())
-            embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
-            embed.add_field(name="قبل", value=before.nick or before.name, inline=True)
-            embed.add_field(name="بعد", value=after.nick or after.name, inline=True)
-            embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await self.send_log(after.guild, embed)
+            key = f"nick_update_{after.id}_{after.guild.id}_{after.nick}"
+            if not self._is_duplicate(key):
+                embed = discord.Embed(title="تغيير الاسم", color=0xffff00, timestamp=datetime.now())
+                embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
+                embed.add_field(name="قبل", value=before.nick or before.name, inline=True)
+                embed.add_field(name="بعد", value=after.nick or after.name, inline=True)
+                embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
+                embed.set_footer(text="نظام الحماية • MSA")
+                await self.send_log(after.guild, embed)
         
         # إضافة رول
         if len(before.roles) < len(after.roles):
             new_role = list(set(after.roles) - set(before.roles))[0]
-            await asyncio.sleep(1)
-            async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
-                embed = discord.Embed(title="إعطاء رول", color=0x00ff00, timestamp=datetime.now())
-                embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-                embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
-                embed.add_field(name="الرول", value=new_role.mention, inline=True)
-                embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
-                embed.set_footer(text="نظام الحماية • MSA")
-                await self.send_log(after.guild, embed)
-                break
+            key = f"role_add_{after.id}_{new_role.id}"
+            if not self._is_duplicate(key):
+                await asyncio.sleep(1)
+                async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
+                    embed = discord.Embed(title="إعطاء رول", color=0x00ff00, timestamp=datetime.now())
+                    embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+                    embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
+                    embed.add_field(name="الرول", value=new_role.mention, inline=True)
+                    embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
+                    embed.set_footer(text="نظام الحماية • MSA")
+                    await self.send_log(after.guild, embed)
+                    break
         
         # سحب رول
         if len(before.roles) > len(after.roles):
             removed_role = list(set(before.roles) - set(after.roles))[0]
-            await asyncio.sleep(1)
-            async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
-                embed = discord.Embed(title="سحب رول", color=0xff0000, timestamp=datetime.now())
-                embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-                embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
-                embed.add_field(name="الرول", value=removed_role.name, inline=True)
-                embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
-                embed.set_footer(text="نظام الحماية • MSA")
-                await self.send_log(after.guild, embed)
-                break
+            key = f"role_remove_{after.id}_{removed_role.id}"
+            if not self._is_duplicate(key):
+                await asyncio.sleep(1)
+                async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
+                    embed = discord.Embed(title="سحب رول", color=0xff0000, timestamp=datetime.now())
+                    embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
+                    embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
+                    embed.add_field(name="الرول", value=removed_role.name, inline=True)
+                    embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
+                    embed.set_footer(text="نظام الحماية • MSA")
+                    await self.send_log(after.guild, embed)
+                    break
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         # دخول روم صوتي
         if before.channel is None and after.channel is not None:
+            key = f"vc_join_{member.id}_{after.channel.id}"
+            if self._is_duplicate(key):
+                return
             embed = discord.Embed(title="دخول روم صوتي", color=0x00ff00, timestamp=datetime.now())
             embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
             embed.add_field(name="الروم", value=after.channel.name, inline=True)
@@ -253,6 +301,9 @@ class Logging(commands.Cog):
         
         # خروج من روم صوتي
         elif before.channel is not None and after.channel is None:
+            key = f"vc_leave_{member.id}_{before.channel.id}"
+            if self._is_duplicate(key):
+                return
             embed = discord.Embed(title="خروج من روم صوتي", color=0xff0000, timestamp=datetime.now())
             embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
             embed.add_field(name="الروم", value=before.channel.name, inline=True)
@@ -262,6 +313,9 @@ class Logging(commands.Cog):
         
         # تنقل
         elif before.channel != after.channel and before.channel is not None and after.channel is not None:
+            key = f"vc_move_{member.id}_{before.channel.id}_{after.channel.id}"
+            if self._is_duplicate(key):
+                return
             embed = discord.Embed(title="تنقل بين رومات صوتية", color=0xffff00, timestamp=datetime.now())
             embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
             embed.add_field(name="من", value=before.channel.name, inline=True)
