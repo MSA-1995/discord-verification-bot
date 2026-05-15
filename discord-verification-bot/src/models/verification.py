@@ -73,6 +73,10 @@ class VerifyButton(discord.ui.View):
 
     async def add_roles(self, member, roles):
         try:
+            welcome_role = discord.utils.get(member.guild.roles, name="Welcome")
+            if welcome_role and welcome_role in member.roles:
+                await member.remove_roles(welcome_role)
+                print(f"Removed Welcome role from {member.name}")
             await member.add_roles(*roles)
             print(f"✅ Added roles {[r.name for r in roles]} to {member.name}")
         except discord.Forbidden:
