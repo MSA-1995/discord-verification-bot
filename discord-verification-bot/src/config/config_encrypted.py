@@ -17,7 +17,7 @@ ENCRYPTED_TOKEN = "gAAAAABp9msbvqZM_lQuDm0nNgPQTwoW7pti1aCs6pRn10Y1kRrU68ozQFn4m
 ENCRYPTED_CRITICAL_WEBHOOK = "gAAAAABpuay0FYK_AXFBy_trEWffy5Ho8xzGr4-zSrASVWnVqipfKR3_k6C9VsucFp1qPEzcHaXDb8txhiVUkFrXFKTD9XIguwTnCZcpj6FqnGTKi7-jaCDb3eHEdeNiZcmKpax4ma_WNrlRHLJDTVDSuWvtff41bmMLyohJ3_ezK3Ox0-8iHeVDnutL1oyU7sMHwWfWY4f12xvc--03MTYqu42u_0IfNbEvyCt2LGvDNlVIJcCkQeg="
 
 # المفتاح (من Environment Variable)
-ENCRYPTION_KEY = "sBxWnLSyyCY9ib9Yo100AR4Se6kC9sAXcDfqHox9kKc="
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 
 def get_discord_token():
     """فك تشفير Discord Token"""
