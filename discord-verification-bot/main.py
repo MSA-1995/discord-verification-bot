@@ -35,6 +35,7 @@ CRITICAL_WEBHOOK = get_critical_webhook()
 INSTANCE_ID = os.getenv("KOYEB_DEPLOYMENT_ID") or os.getenv("HOSTNAME") or str(uuid.uuid4())
 INSTANCE_STARTED_AT = time.time()
 LEASE_MARKER = "MSA_BOT_SINGLETON_LEASE"
+LEASE_CHANNEL_NAME = os.getenv("SINGLETON_CHANNEL_NAME", "🤖・bot-status")
 LEASE_CHECK_SECONDS = int(os.getenv("LEASE_CHECK_SECONDS", "20"))
 LEASE_STALE_SECONDS = int(os.getenv("LEASE_STALE_SECONDS", "90"))
 
@@ -163,7 +164,7 @@ class MSABot(commands.Bot):
 
         while not self.is_closed():
             try:
-                lease_channel = self._get_lease_channel()
+                lease_channel = await self._get_lease_channel()
                 if lease_channel:
                     should_stop = await self._sync_singleton_lease(lease_channel)
                     if should_stop:
@@ -179,7 +180,7 @@ class MSABot(commands.Bot):
 
             await asyncio.sleep(LEASE_CHECK_SECONDS)
 
-    def _get_lease_channel(self):
+    async def _get_lease_channel(self):
         channel_id = os.getenv("SINGLETON_CHANNEL_ID") or os.getenv("LOG_CHANNEL_ID")
         if channel_id and channel_id.isdigit():
             channel = self.get_channel(int(channel_id))
@@ -187,9 +188,42 @@ class MSABot(commands.Bot):
                 return channel
 
         for guild in self.guilds:
+            channel = discord.utils.get(guild.text_channels, name=LEASE_CHANNEL_NAME)
+            if channel:
+                return channel
+
+        for guild in self.guilds:
+            channel = await self._create_lease_channel(guild)
+            if channel:
+                return channel
+
+        for guild in self.guilds:
             channel = discord.utils.get(guild.text_channels, name="📋・logs")
             if channel:
                 return channel
+        return None
+
+    async def _create_lease_channel(self, guild):
+        me = guild.me or guild.get_member(self.user.id)
+        if not me or not me.guild_permissions.manage_channels:
+            print(f"⚠️ Missing Manage Channels permission to create {LEASE_CHANNEL_NAME} in {guild.name}.")
+            return None
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True),
+        }
+
+        try:
+            return await guild.create_text_channel(
+                name=LEASE_CHANNEL_NAME,
+                overwrites=overwrites,
+                reason="Bot status channel for singleton guard",
+            )
+        except discord.Forbidden:
+            print(f"⚠️ Forbidden: cannot create {LEASE_CHANNEL_NAME} in {guild.name}.")
+        except discord.HTTPException as e:
+            print(f"⚠️ Failed to create {LEASE_CHANNEL_NAME} in {guild.name}: {e}")
         return None
 
     async def _find_lease_message(self, channel):
