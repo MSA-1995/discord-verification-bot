@@ -36,7 +36,7 @@ INSTANCE_ID = os.getenv("KOYEB_DEPLOYMENT_ID") or os.getenv("HOSTNAME") or str(u
 INSTANCE_STARTED_AT = time.time()
 LEASE_MARKER = "MSA_BOT_SINGLETON_LEASE"
 LEASE_CHANNEL_NAME = os.getenv("SINGLETON_CHANNEL_NAME", "🤖・bot-status")
-LEASE_CHECK_SECONDS = int(os.getenv("LEASE_CHECK_SECONDS", "20"))
+LEASE_CHECK_SECONDS = int(os.getenv("LEASE_CHECK_SECONDS", "60"))
 LEASE_STALE_SECONDS = int(os.getenv("LEASE_STALE_SECONDS", "90"))
 
 shutdown_requested = False
