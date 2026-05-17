@@ -5,6 +5,14 @@ import asyncio
 import aiohttp
 import os
 
+def guild_owner_only():
+    async def predicate(ctx):
+        if ctx.guild and ctx.author.id == ctx.guild.owner_id:
+            return True
+        await ctx.send("❌ هذا الأمر مخصص لمالك السيرفر فقط.", delete_after=7)
+        return False
+    return commands.check(predicate)
+
 class Logging(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -84,7 +92,7 @@ class Logging(commands.Cog):
     # Commands
     # =====================================================
     @commands.command()
-    @commands.has_permissions(administrator=True)
+    @guild_owner_only()
     async def setup_logs(self, ctx):
         """إنشاء روم اللوقات المخفي"""
         await ctx.message.delete()
@@ -109,7 +117,7 @@ class Logging(commands.Cog):
         await ctx.send(embed=embed, delete_after=10)
 
     @commands.command()
-    @commands.has_permissions(manage_messages=True)
+    @guild_owner_only()
     async def clear(self, ctx):
         """حذف كل الرسائل من الروم الحالي"""
         try:
