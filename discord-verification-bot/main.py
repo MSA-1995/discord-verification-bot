@@ -316,10 +316,10 @@ class MSABot(commands.Bot):
             color=0x3498db,
             timestamp=datetime.now(timezone.utc),
         )
-        embed.add_field(name="الحالة", value="Online", inline=True)
-        embed.add_field(name="معرف النسخة", value=str(payload["instance_id"]), inline=True)
+        embed.add_field(name="الحالة", value="Online", inline=False)
+        embed.add_field(name="معرف النسخة", value=str(payload["instance_id"]), inline=False)
         embed.add_field(name="وقت التشغيل", value=f"<t:{started_at}:F>", inline=False)
-        embed.add_field(name="آخر تحديث", value=f"<t:{heartbeat_at}:R>", inline=True)
+        embed.add_field(name="آخر تحديث", value=f"<t:{heartbeat_at}:R>", inline=False)
         embed.set_footer(text=f"نظام التشغيل • {LEASE_MARKER}")
         return embed
 
