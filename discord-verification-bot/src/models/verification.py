@@ -6,6 +6,14 @@ import aiohttp
 
 NEW_ACCOUNT_DAYS = 30
 
+def guild_owner_only():
+    async def predicate(ctx):
+        if ctx.guild and ctx.author.id == ctx.guild.owner_id:
+            return True
+        await ctx.send("❌ هذا الأمر مخصص لمالك السيرفر فقط.", delete_after=7)
+        return False
+    return commands.check(predicate)
+
 class VerifyButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -136,7 +144,7 @@ class Verification(commands.Cog):
         await self.task_queue.put((func, args))
 
     @commands.command()
-    @commands.has_permissions(administrator=True)
+    @guild_owner_only()
     async def setup_verify(self, ctx):
         # منع تنفيذ الأمر إذا كان هناك رسالة تفعيل قيد الإنشاء في نفس الثانية
         if getattr(self, "_setup_lock", False):
@@ -170,7 +178,7 @@ class Verification(commands.Cog):
             self._setup_lock = False
 
     @commands.command()
-    @commands.has_permissions(administrator=True)
+    @guild_owner_only()
     async def shutdown(self, ctx):
         await ctx.send("🛑 جاري إيقاف البوت... سيتم قطع الاتصال فوراً.")
         await self.bot.close()
