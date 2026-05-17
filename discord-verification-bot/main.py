@@ -201,11 +201,34 @@ class MSABot(commands.Bot):
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 self._lease_message_id = None
 
-        async for message in channel.history(limit=50):
+        lease_messages = await self._collect_lease_messages(channel)
+        if not lease_messages:
+            return None
+
+        message = lease_messages[0]
+        self._lease_message_id = message.id
+        return message
+
+    async def _collect_lease_messages(self, channel):
+        messages = []
+        async for message in channel.history(limit=100):
             if message.author.id == self.user.id and self._is_lease_message(message):
-                self._lease_message_id = message.id
-                return message
-        return None
+                messages.append(message)
+        return messages
+
+    async def _delete_duplicate_lease_messages(self, channel, keep_message_id):
+        lease_messages = await self._collect_lease_messages(channel)
+        for message in lease_messages:
+            if message.id == keep_message_id:
+                continue
+
+            try:
+                await message.delete()
+                print(f"🧹 Deleted duplicate singleton lease message: {message.id}")
+            except discord.Forbidden:
+                print("⚠️ Missing permission to delete duplicate singleton lease message.")
+            except discord.HTTPException as e:
+                print(f"⚠️ Failed to delete duplicate singleton lease message: {e}")
 
     def _is_lease_message(self, message):
         if message.content.startswith(LEASE_MARKER):
@@ -255,7 +278,7 @@ class MSABot(commands.Bot):
 
         embed = discord.Embed(
             title="حالة تشغيل البوت",
-            description="النسخة الحالية تعمل الآن. إذا بدأ نشر جديد، النسخة الأقدم ستتوقف تلقائياً.",
+            description="النسخة الحالية تعمل الآن.",
             color=0x3498db,
             timestamp=datetime.now(timezone.utc),
         )
@@ -294,6 +317,8 @@ class MSABot(commands.Bot):
         else:
             message = await channel.send(embed=embed)
             self._lease_message_id = message.id
+
+        await self._delete_duplicate_lease_messages(channel, message.id)
 
         return False
 
