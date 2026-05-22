@@ -38,6 +38,8 @@ LEASE_MARKER = "MSA_BOT_SINGLETON_LEASE"
 LEASE_CHANNEL_NAME = os.getenv("SINGLETON_CHANNEL_NAME", "🤖・bot-status")
 LEASE_CHECK_SECONDS = int(os.getenv("LEASE_CHECK_SECONDS", "60"))
 LEASE_STALE_SECONDS = int(os.getenv("LEASE_STALE_SECONDS", "90"))
+LEASE_WRITE_RETRIES = int(os.getenv("LEASE_WRITE_RETRIES", "3"))
+LEASE_WRITE_RETRY_DELAY = float(os.getenv("LEASE_WRITE_RETRY_DELAY", "2"))
 
 shutdown_requested = False
 
@@ -346,15 +348,41 @@ class MSABot(commands.Bot):
         }
         embed = self._build_lease_embed(lease_payload)
 
-        if message:
-            await message.edit(content="", embed=embed)
-        else:
-            message = await channel.send(embed=embed)
-            self._lease_message_id = message.id
+        message = await self._write_lease_message(channel, message, embed)
+        if not message:
+            return False
 
         await self._delete_duplicate_lease_messages(channel, message.id)
 
         return False
+
+    async def _write_lease_message(self, channel, message, embed):
+        for attempt in range(1, LEASE_WRITE_RETRIES + 1):
+            try:
+                if message:
+                    await message.edit(content="", embed=embed)
+                else:
+                    message = await channel.send(embed=embed)
+                    self._lease_message_id = message.id
+                return message
+            except discord.NotFound:
+                self._lease_message_id = None
+                message = None
+            except discord.Forbidden:
+                print("⚠️ Missing permission to update singleton lease message.")
+                return None
+            except discord.HTTPException as e:
+                status = getattr(e, "status", None)
+                if status and 500 <= status < 600 and attempt < LEASE_WRITE_RETRIES:
+                    await asyncio.sleep(LEASE_WRITE_RETRY_DELAY * attempt)
+                    continue
+
+                if status and 500 <= status < 600:
+                    print(f"⚠️ Discord API temporary error while updating singleton lease ({status}). Will retry next cycle.")
+                    return None
+                raise
+
+        return None
 
     async def _shutdown_for_newer_instance(self):
         global shutdown_requested
