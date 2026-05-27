@@ -161,15 +161,11 @@ class Verification(commands.Cog):
                 color=0x2b2d31
             )
 
-            # Author - اسم السيرفر
+            # صورة السيرفر صغيرة فقط في الـ author
             embed.set_author(
                 name=ctx.guild.name,
                 icon_url=ctx.guild.icon.url if ctx.guild.icon else None
             )
-
-            # صورة كبيرة - لوقو السيرفر
-            if ctx.guild.icon:
-                embed.set_thumbnail(url=ctx.guild.icon.url)
 
             # المحتوى الرئيسي
             embed.add_field(
