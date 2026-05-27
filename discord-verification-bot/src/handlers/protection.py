@@ -11,7 +11,12 @@ SPAM_THRESHOLD = 5
 SPAM_TIMEFRAME = 10
 MUTE_DURATION = 30
 
-LINK_PATTERN = re.compile(r'https?://\S+|discord\.gg/\S+', re.IGNORECASE)
+LINK_PATTERN = re.compile(
+    r'https?://\S+'           # http:// أو https://
+    r'|discord\.gg/\S+'       # discord.gg/invite
+    r'|www\.\S+'              # www.example.com
+    r'|\S+\.(com|net|org|io|me|cc|gg|xyz|tk|ml|ga|cf|gq|ru|cn|info|biz|co|tv|ly|link|click|top|online|site|website|store|shop)\b'  # أي دومين معروف
+, re.IGNORECASE)
 
 class Protection(commands.Cog):
     def __init__(self, bot):
@@ -61,6 +66,52 @@ class Protection(commands.Cog):
             except Exception:
                 pass  # ConnectionReset/DNS errors - skip silently
 
+    def _build_log_embed(self, *, action_type, title, member, reason, channel=None, extra_fields=None, guild=None):
+        """بناء embed موحد للوقات الحماية"""
+        # ألوان حسب نوع الإجراء
+        colors = {
+            "ban": 0xff0000,      # أحمر - باند
+            "timeout": 0xff6600,  # برتقالي - تايم أوت
+            "kick": 0xffaa00,     # أصفر - كيك
+            "info": 0x3498db,     # أزرق - معلومات
+        }
+        color = colors.get(action_type, 0xff0000)
+
+        embed = discord.Embed(
+            title=title,
+            color=color,
+            timestamp=datetime.now()
+        )
+
+        # Author row - اسم البوت + لوقو صغير
+        bot_avatar = self.bot.user.avatar.url if self.bot.user.avatar else None
+        embed.set_author(name="نظام الحماية", icon_url=bot_avatar)
+
+        # صورة العضو كـ thumbnail
+        if hasattr(member, 'avatar') and member.avatar:
+            embed.set_thumbnail(url=member.avatar.url)
+        elif hasattr(member, 'default_avatar'):
+            embed.set_thumbnail(url=member.default_avatar.url)
+
+        # الحقول الأساسية
+        embed.add_field(name="العضو", value=f"{member.mention}", inline=True)
+        embed.add_field(name="الآيدي", value=f"`{member.id}`", inline=True)
+
+        if channel:
+            embed.add_field(name="القناة", value=f"{channel.mention}" if hasattr(channel, 'mention') else str(channel), inline=True)
+
+        embed.add_field(name="السبب", value=reason[:1024], inline=False)
+
+        # حقول إضافية
+        if extra_fields:
+            for name, value in extra_fields:
+                embed.add_field(name=name, value=value, inline=True)
+
+        # Footer
+        embed.set_footer(text="نظام الحماية | MSA")
+
+        return embed
+
     # =====================================================
     # FIX 4: دالة مساعدة لجلب audit log مع filter زمني
     # =====================================================
@@ -83,27 +134,58 @@ class Protection(commands.Cog):
             return
 
         if message.author.guild_permissions.administrator:
-            return
+            if not message.content.startswith("!") and not message.content.startswith("/"):
+                return
 
         member = message.author
 
-        # 1. فحص الروابط
+        # 0. فحص الأوامر - فقط الأونر يستخدم أوامر
+        if message.content.startswith("!") or message.content.startswith("/"):
+            if message.author.id != message.guild.owner_id:
+                try:
+                    await message.delete()
+                    await message.channel.send(
+                        f"{member.mention} تم حظرك نهائياً بسبب استخدام أوامر غير مصرح بها.",
+                        delete_after=10
+                    )
+
+                    embed = self._build_log_embed(
+                        action_type="ban",
+                        title="باند | استخدام أوامر",
+                        member=member,
+                        reason=f"كتب أمر: `{message.content[:200]}`",
+                        channel=message.channel,
+                        extra_fields=[("الإجراء", "حذف + باند نهائي")]
+                    )
+                    await self.send_security_log(message.guild, embed)
+
+                    await member.ban(reason="🚫 Unauthorized command usage - auto ban", delete_message_days=1)
+                except discord.Forbidden:
+                    pass
+                except discord.HTTPException:
+                    pass
+                return
+
+        # 1. فحص الروابط - باند مباشر
         if LINK_PATTERN.search(message.content):
             try:
                 await message.delete()
-                await member.timeout(timedelta(minutes=MUTE_DURATION), reason="🚫 Posted links")
                 await message.channel.send(
-                    f"⚠️ {member.mention} تم إعطاؤك تايم أوت لمدة {MUTE_DURATION} دقيقة بسبب إرسال روابط.",
+                    f"{member.mention} تم حظرك نهائياً بسبب إرسال روابط.",
                     delete_after=10
                 )
 
-                embed = discord.Embed(title="لوق الحماية - ميوت روابط", color=0xff6600, timestamp=datetime.now())
-                embed.add_field(name="العضو",   value=f"{member.mention} ({member.id})", inline=False)
-                embed.add_field(name="المحتوى", value=message.content[:1024],             inline=False)
-                embed.add_field(name="المدة",   value=f"{MUTE_DURATION} دقيقة",           inline=True)
-                embed.set_thumbnail(url=message.guild.icon.url if message.guild.icon else None)
-                embed.set_footer(text="نظام الحماية • MSA")
+                embed = self._build_log_embed(
+                    action_type="ban",
+                    title="باند | إرسال روابط",
+                    member=member,
+                    reason=message.content[:500],
+                    channel=message.channel,
+                    extra_fields=[("الإجراء", "حذف الرسالة + باند نهائي")]
+                )
                 await self.send_security_log(message.guild, embed)
+
+                await member.ban(reason="🚫 Posted links - auto ban", delete_message_days=1)
             except discord.Forbidden:
                 pass
             except discord.HTTPException:
@@ -123,18 +205,28 @@ class Protection(commands.Cog):
 
         if len(self.user_messages[member.id]) >= SPAM_THRESHOLD:
             try:
+                # حذف رسائل الشخص من القناة
+                def is_spammer(m):
+                    return m.author.id == member.id
+                await message.channel.purge(limit=50, check=is_spammer)
+
                 await member.timeout(timedelta(minutes=MUTE_DURATION), reason="🚫 Spamming")
                 await message.channel.send(
-                    f"⚠️ {member.mention} تم إعطاؤك تايم أوت لمدة {MUTE_DURATION} دقيقة بسبب السبام.",
+                    f"{member.mention} تم إعطاؤك تايم أوت لمدة {MUTE_DURATION} دقيقة بسبب السبام.",
                     delete_after=10
                 )
 
-                embed = discord.Embed(title="لوق الحماية - ميوت سبام", color=0xff6600, timestamp=datetime.now())
-                embed.add_field(name="العضو",  value=f"{member.mention} ({member.id})",                         inline=False)
-                embed.add_field(name="السبب",  value=f"إرسال {SPAM_THRESHOLD} رسائل في {SPAM_TIMEFRAME} ثواني", inline=False)
-                embed.add_field(name="المدة",  value=f"{MUTE_DURATION} دقيقة",                                   inline=True)
-                embed.set_thumbnail(url=message.guild.icon.url if message.guild.icon else None)
-                embed.set_footer(text="نظام الحماية • MSA")
+                embed = self._build_log_embed(
+                    action_type="timeout",
+                    title="تايم أوت | سبام",
+                    member=member,
+                    reason=f"إرسال {SPAM_THRESHOLD} رسائل في {SPAM_TIMEFRAME} ثواني",
+                    channel=message.channel,
+                    extra_fields=[
+                        ("الإجراء", "حذف رسائله + تايم أوت"),
+                        ("المدة", f"{MUTE_DURATION} دقيقة")
+                    ]
+                )
                 await self.send_security_log(message.guild, embed)
 
                 self.user_messages[member.id].clear()
@@ -161,14 +253,34 @@ class Protection(commands.Cog):
             return
 
         try:
-            await member.kick(reason="🚫 Only owner can add bots")
+            await member.ban(reason="🚫 Unauthorized bot - only owner can add bots")
 
-            embed = discord.Embed(title="لوق الحماية - طرد بوت", color=0xff0000, timestamp=datetime.now())
-            embed.add_field(name="البوت",    value=f"{member.name} ({member.id})",           inline=False)
-            embed.add_field(name="من أضافه", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await self.send_security_log(member.guild, embed)
+            # باند الشخص اللي أضاف البوت
+            adder = entry.user
+            adder_member = member.guild.get_member(adder.id)
+            if adder_member:
+                embed = self._build_log_embed(
+                    action_type="ban",
+                    title="باند | إضافة بوت غير مصرح",
+                    member=adder_member,
+                    reason=f"أضاف بوت: {member.name} ({member.id})",
+                    extra_fields=[
+                        ("البوت", f"{member.name} (`{member.id}`)"),
+                        ("الإجراء", "باند البوت + باند من أضافه")
+                    ]
+                )
+                await self.send_security_log(member.guild, embed)
+
+                await adder_member.ban(reason="🚫 Added unauthorized bot - only owner can add bots", delete_message_days=1)
+            else:
+                embed = self._build_log_embed(
+                    action_type="ban",
+                    title="باند | بوت غير مصرح",
+                    member=member,
+                    reason=f"بوت غير مصرح أضافه: {adder.mention} ({adder.id})",
+                    extra_fields=[("الإجراء", "باند البوت")]
+                )
+                await self.send_security_log(member.guild, embed)
         except (discord.Forbidden, discord.HTTPException):
             pass
 
@@ -194,26 +306,18 @@ class Protection(commands.Cog):
         try:
             await channel.delete(reason="🚫 Unauthorized channel creation")
 
-            # تحذير أول مرة بدل باند مباشر
             member = channel.guild.get_member(creator.id)
             if member:
-                try:
-                    await member.send(
-                        f"⚠️ تحذير: قمت بإنشاء روم غير مصرح به في **{channel.guild.name}**.\n"
-                        f"سيتم حظرك إذا تكررت هذه العملية."
-                    )
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
+                embed = self._build_log_embed(
+                    action_type="ban",
+                    title="باند | إنشاء روم",
+                    member=member,
+                    reason=f"أنشأ روم: **{channel.name}**",
+                    extra_fields=[("الإجراء", "حذف الروم + باند نهائي")]
+                )
+                await self.send_security_log(channel.guild, embed)
 
-                await member.timeout(timedelta(minutes=60), reason="🚫 Unauthorized channel creation")
-
-            embed = discord.Embed(title="لوق الحماية - إنشاء روم غير مصرح", color=0xff0000, timestamp=datetime.now())
-            embed.add_field(name="الشخص",    value=f"{creator.mention} ({creator.id})", inline=False)
-            embed.add_field(name="الروم",    value=channel.name,                        inline=True)
-            embed.add_field(name="الإجراء",  value="حذف الروم + تايم أوت 60 دقيقة",   inline=False)
-            embed.set_thumbnail(url=channel.guild.icon.url if channel.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await self.send_security_log(channel.guild, embed)
+                await member.ban(reason="🚫 Unauthorized channel creation - auto ban", delete_message_days=1)
         except (discord.Forbidden, discord.HTTPException):
             pass
 
@@ -240,23 +344,16 @@ class Protection(commands.Cog):
 
             member = role.guild.get_member(creator.id)
             if member:
-                try:
-                    await member.send(
-                        f"⚠️ تحذير: قمت بإنشاء رول غير مصرح به في **{role.guild.name}**.\n"
-                        f"سيتم حظرك إذا تكررت هذه العملية."
-                    )
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
+                embed = self._build_log_embed(
+                    action_type="ban",
+                    title="باند | إنشاء رول",
+                    member=member,
+                    reason=f"أنشأ رول: **{role.name}**",
+                    extra_fields=[("الإجراء", "حذف الرول + باند نهائي")]
+                )
+                await self.send_security_log(role.guild, embed)
 
-                await member.timeout(timedelta(minutes=60), reason="🚫 Unauthorized role creation")
-
-            embed = discord.Embed(title="لوق الحماية - إنشاء رول غير مصرح", color=0xff0000, timestamp=datetime.now())
-            embed.add_field(name="الشخص",   value=f"{creator.mention} ({creator.id})", inline=False)
-            embed.add_field(name="الرول",   value=role.name,                            inline=True)
-            embed.add_field(name="الإجراء", value="حذف الرول + تايم أوت 60 دقيقة",    inline=False)
-            embed.set_thumbnail(url=role.guild.icon.url if role.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
-            await self.send_security_log(role.guild, embed)
+                await member.ban(reason="🚫 Unauthorized role creation - auto ban", delete_message_days=1)
         except (discord.Forbidden, discord.HTTPException):
             pass
 
