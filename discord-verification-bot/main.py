@@ -314,15 +314,23 @@ class MSABot(commands.Bot):
 
         embed = discord.Embed(
             title="حالة تشغيل البوت",
-            description="النسخة الحالية تعمل الآن.",
             color=0x3498db,
             timestamp=datetime.now(timezone.utc),
         )
-        embed.add_field(name="الحالة", value="Online", inline=False)
-        embed.add_field(name="معرف النسخة", value=str(payload["instance_id"]), inline=False)
+
+        # Author row
+        bot_avatar = self.user.avatar.url if self.user and self.user.avatar else None
+        embed.set_author(name="نظام الحماية", icon_url=bot_avatar)
+
+        # Thumbnail - صورة البوت
+        if bot_avatar:
+            embed.set_thumbnail(url=bot_avatar)
+
+        embed.add_field(name="الحالة", value="Online", inline=True)
+        embed.add_field(name="معرف النسخة", value=f"`{str(payload['instance_id'])[:8]}`", inline=True)
         embed.add_field(name="وقت التشغيل", value=f"<t:{started_at}:F>", inline=False)
-        embed.add_field(name="آخر تحديث", value=f"<t:{heartbeat_at}:R>", inline=False)
-        embed.set_footer(text=f"نظام التشغيل • {LEASE_MARKER}")
+        embed.add_field(name="آخر تحديث", value=f"<t:{heartbeat_at}:R>", inline=True)
+        embed.set_footer(text=f"نظام الحماية | MSA | {LEASE_MARKER}")
         return embed
 
     async def _sync_singleton_lease(self, channel):
