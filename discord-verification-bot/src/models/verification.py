@@ -158,15 +158,30 @@ class Verification(commands.Cog):
 
         try:
             embed = discord.Embed(
-                title="توثيق السيرفر",
-                description="اضغط على زر **توثيق الحساب** للحصول على صلاحية الوصول لبقية السيرفر.\n\n**الحماية النشطة**",
-                color=0x00ff00
+                color=0x2b2d31
             )
-            
+
+            # Author - اسم السيرفر
+            embed.set_author(
+                name=ctx.guild.name,
+                icon_url=ctx.guild.icon.url if ctx.guild.icon else None
+            )
+
+            # صورة كبيرة - لوقو السيرفر
             if ctx.guild.icon:
                 embed.set_thumbnail(url=ctx.guild.icon.url)
-                
-            embed.set_footer(text="نظام التوثيق والحماية • MSA")
+
+            # المحتوى الرئيسي
+            embed.add_field(
+                name="التحقق من الهوية",
+                value=(
+                    "للوصول إلى قنوات السيرفر، يجب التحقق من حسابك.\n"
+                    "اضغط الزر أدناه لإتمام التوثيق."
+                ),
+                inline=False
+            )
+
+            embed.set_footer(text="نظام الحماية | MSA")
 
             await ctx.send(embed=embed, view=VerifyButton())
             print(f"✅ Verification message created in #{ctx.channel.name}")
