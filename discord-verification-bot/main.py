@@ -322,10 +322,6 @@ class MSABot(commands.Bot):
         bot_avatar = self.user.avatar.url if self.user and self.user.avatar else None
         embed.set_author(name="نظام الحماية", icon_url=bot_avatar)
 
-        # Thumbnail - صورة البوت
-        if bot_avatar:
-            embed.set_thumbnail(url=bot_avatar)
-
         embed.add_field(name="الحالة", value="Online", inline=True)
         embed.add_field(name="معرف النسخة", value=f"`{str(payload['instance_id'])[:8]}`", inline=True)
         embed.add_field(name="وقت التشغيل", value=f"<t:{started_at}:F>", inline=False)
