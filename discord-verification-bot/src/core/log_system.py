@@ -70,6 +70,36 @@ class Logging(commands.Cog):
         except Exception as e:
             print(f"⚠️ Failed to send log: {e}")
 
+    def _build_log_embed(self, *, title, color, member=None, user=None, fields=None, guild=None):
+        """بناء embed موحد للوقات"""
+        embed = discord.Embed(
+            title=title,
+            color=color,
+            timestamp=datetime.now(timezone.utc)
+        )
+
+        # Author row
+        bot_avatar = self.bot.user.avatar.url if self.bot.user.avatar else None
+        embed.set_author(name="نظام الحماية", icon_url=bot_avatar)
+
+        # صورة العضو كـ thumbnail
+        target = member or user
+        if target:
+            if hasattr(target, 'avatar') and target.avatar:
+                embed.set_thumbnail(url=target.avatar.url)
+            elif hasattr(target, 'default_avatar'):
+                embed.set_thumbnail(url=target.default_avatar.url)
+
+        # الحقول
+        if fields:
+            for name, value, inline in fields:
+                embed.add_field(name=name, value=value, inline=inline)
+
+        # Footer
+        embed.set_footer(text="نظام الحماية | MSA")
+
+        return embed
+
     # =====================================================
     # FIX: دالة مساعدة لجلب audit log مع filter زمني
     # =====================================================
@@ -141,12 +171,17 @@ class Logging(commands.Cog):
         if self._is_duplicate(key):
             return
 
-        embed = discord.Embed(title="دخول السيرفر", color=0x00ff00, timestamp=datetime.now(timezone.utc))
-        embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
-        embed.add_field(name="تاريخ إنشاء الحساب", value=member.created_at.strftime("%Y-%m-%d %H:%M"), inline=True)
-        embed.add_field(name="عدد الأعضاء", value=member.guild.member_count, inline=True)
-        embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-        embed.set_footer(text="نظام الحماية • MSA")
+        embed = self._build_log_embed(
+            title="دخول السيرفر",
+            color=0x00ff00,
+            member=member,
+            fields=[
+                ("العضو", f"{member.mention}", True),
+                ("الآيدي", f"`{member.id}`", True),
+                ("تاريخ إنشاء الحساب", member.created_at.strftime("%Y-%m-%d %H:%M"), True),
+                ("عدد الأعضاء", str(member.guild.member_count), True),
+            ]
+        )
         await self.send_log(member.guild, embed)
 
     @commands.Cog.listener()
@@ -158,12 +193,16 @@ class Logging(commands.Cog):
         await asyncio.sleep(1)
         entry = await self._get_audit_entry(channel.guild, discord.AuditLogAction.channel_create, channel.id)
         if entry:
-            embed = discord.Embed(title="إنشاء روم", color=0x00ff00, timestamp=datetime.now(timezone.utc))
-            embed.add_field(name="الشخص", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="اسم الروم", value=channel.name, inline=True)
-            embed.add_field(name="ID الروم", value=channel.id, inline=True)
-            embed.set_thumbnail(url=channel.guild.icon.url if channel.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
+            embed = self._build_log_embed(
+                title="إنشاء روم",
+                color=0x00ff00,
+                member=entry.user,
+                fields=[
+                    ("الشخص", f"{entry.user.mention}", True),
+                    ("الآيدي", f"`{entry.user.id}`", True),
+                    ("اسم الروم", channel.name, True),
+                ]
+            )
             await self.send_log(channel.guild, embed)
 
     @commands.Cog.listener()
@@ -175,12 +214,16 @@ class Logging(commands.Cog):
         await asyncio.sleep(1)
         entry = await self._get_audit_entry(role.guild, discord.AuditLogAction.role_create, role.id)
         if entry:
-            embed = discord.Embed(title="إنشاء رول", color=0x00ff00, timestamp=datetime.now(timezone.utc))
-            embed.add_field(name="الشخص", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="اسم الرول", value=role.name, inline=True)
-            embed.add_field(name="ID الرول", value=role.id, inline=True)
-            embed.set_thumbnail(url=role.guild.icon.url if role.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
+            embed = self._build_log_embed(
+                title="إنشاء رول",
+                color=0x00ff00,
+                member=entry.user,
+                fields=[
+                    ("الشخص", f"{entry.user.mention}", True),
+                    ("الآيدي", f"`{entry.user.id}`", True),
+                    ("اسم الرول", role.name, True),
+                ]
+            )
             await self.send_log(role.guild, embed)
 
     @commands.Cog.listener()
@@ -192,12 +235,16 @@ class Logging(commands.Cog):
         await asyncio.sleep(1)
         entry = await self._get_audit_entry(channel.guild, discord.AuditLogAction.channel_delete, channel.id)
         if entry:
-            embed = discord.Embed(title="حذف روم", color=0xff0000, timestamp=datetime.now(timezone.utc))
-            embed.add_field(name="الشخص", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="اسم الروم", value=channel.name, inline=True)
-            embed.add_field(name="ID الروم", value=channel.id, inline=True)
-            embed.set_thumbnail(url=channel.guild.icon.url if channel.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
+            embed = self._build_log_embed(
+                title="حذف روم",
+                color=0xff0000,
+                member=entry.user,
+                fields=[
+                    ("الشخص", f"{entry.user.mention}", True),
+                    ("الآيدي", f"`{entry.user.id}`", True),
+                    ("اسم الروم", channel.name, True),
+                ]
+            )
             await self.send_log(channel.guild, embed)
 
     @commands.Cog.listener()
@@ -209,12 +256,17 @@ class Logging(commands.Cog):
         await asyncio.sleep(1)
         entry = await self._get_audit_entry(guild, discord.AuditLogAction.ban, user.id)
         if entry:
-            embed = discord.Embed(title="باند عضو", color=0xff0000, timestamp=datetime.now(timezone.utc))
-            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="العضو", value=f"{user.mention} ({user.id})", inline=False)
-            embed.add_field(name="السبب", value=entry.reason or "لا يوجد", inline=False)
-            embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
+            embed = self._build_log_embed(
+                title="باند عضو",
+                color=0xff0000,
+                user=user,
+                fields=[
+                    ("المسؤول", f"{entry.user.mention}", True),
+                    ("العضو", f"{user.mention}", True),
+                    ("الآيدي", f"`{user.id}`", True),
+                    ("السبب", entry.reason or "لا يوجد", False),
+                ]
+            )
             await self.send_log(guild, embed)
 
     @commands.Cog.listener()
@@ -226,11 +278,16 @@ class Logging(commands.Cog):
         await asyncio.sleep(1)
         entry = await self._get_audit_entry(guild, discord.AuditLogAction.unban, user.id)
         if entry:
-            embed = discord.Embed(title="فك باند", color=0x00ff00, timestamp=datetime.now(timezone.utc))
-            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="العضو", value=f"{user.name} ({user.id})", inline=False)
-            embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
+            embed = self._build_log_embed(
+                title="فك باند",
+                color=0x00ff00,
+                user=user,
+                fields=[
+                    ("المسؤول", f"{entry.user.mention}", True),
+                    ("العضو", f"{user.name}", True),
+                    ("الآيدي", f"`{user.id}`", True),
+                ]
+            )
             await self.send_log(guild, embed)
 
     # =====================================================
@@ -245,25 +302,33 @@ class Logging(commands.Cog):
         await asyncio.sleep(1)
         entry = await self._get_audit_entry(member.guild, discord.AuditLogAction.kick, member.id)
         if entry:
-            embed = discord.Embed(title="طرد عضو", color=0xff0000, timestamp=datetime.now(timezone.utc))
-            embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-            embed.add_field(name="العضو", value=f"{member.name} ({member.id})", inline=False)
-            embed.add_field(name="السبب", value=entry.reason or "لا يوجد", inline=False)
-            embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
+            embed = self._build_log_embed(
+                title="طرد عضو",
+                color=0xff0000,
+                member=member,
+                fields=[
+                    ("المسؤول", f"{entry.user.mention}", True),
+                    ("العضو", f"{member.name}", True),
+                    ("الآيدي", f"`{member.id}`", True),
+                    ("السبب", entry.reason or "لا يوجد", False),
+                ]
+            )
             await self.send_log(member.guild, embed)
         else:
-            # العضو غادر من تلقاء نفسه
-            embed = discord.Embed(title="مغادرة السيرفر", color=0x808080, timestamp=datetime.now(timezone.utc))
-            embed.add_field(name="العضو", value=f"{member.name} ({member.id})", inline=False)
-            embed.add_field(name="عدد الأعضاء", value=member.guild.member_count, inline=True)
-            embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
+            embed = self._build_log_embed(
+                title="مغادرة السيرفر",
+                color=0x808080,
+                member=member,
+                fields=[
+                    ("العضو", f"{member.name}", True),
+                    ("الآيدي", f"`{member.id}`", True),
+                    ("عدد الأعضاء", str(member.guild.member_count), True),
+                ]
+            )
             await self.send_log(member.guild, embed)
 
     @commands.Cog.listener()
     async def on_message_delete(self, message):
-        # التحقق من وجود الكاتب (قد يكون None إذا لم تكن الرسالة في الذاكرة)
         if not message.author or message.author.bot or self.bulk_delete_active:
             return
 
@@ -271,12 +336,17 @@ class Logging(commands.Cog):
         if self._is_duplicate(key):
             return
 
-        embed = discord.Embed(title="حذف رسالة", color=0xff0000, timestamp=datetime.now(timezone.utc))
-        embed.add_field(name="الكاتب", value=f"{message.author.mention} ({message.author.id})", inline=False)
-        embed.add_field(name="المحتوى", value=message.content[:1024] if message.content else "لا يوجد", inline=False)
-        embed.add_field(name="الروم", value=message.channel.mention, inline=True)
-        embed.set_thumbnail(url=message.guild.icon.url if message.guild.icon else None)
-        embed.set_footer(text="نظام الحماية • MSA")
+        embed = self._build_log_embed(
+            title="حذف رسالة",
+            color=0xff0000,
+            member=message.author,
+            fields=[
+                ("الكاتب", f"{message.author.mention}", True),
+                ("الآيدي", f"`{message.author.id}`", True),
+                ("الروم", message.channel.mention, True),
+                ("المحتوى", message.content[:1024] if message.content else "لا يوجد", False),
+            ]
+        )
         await self.send_log(message.guild, embed)
 
     @commands.Cog.listener()
@@ -288,13 +358,18 @@ class Logging(commands.Cog):
         if self._is_duplicate(key):
             return
 
-        embed = discord.Embed(title="تعديل رسالة", color=0xffff00, timestamp=datetime.now(timezone.utc))
-        embed.add_field(name="الشخص", value=f"{before.author.mention} ({before.author.id})", inline=False)
-        embed.add_field(name="قبل", value=before.content[:1024] if before.content else "لا يوجد", inline=False)
-        embed.add_field(name="بعد", value=after.content[:1024] if after.content else "لا يوجد", inline=False)
-        embed.add_field(name="الروم", value=before.channel.mention, inline=True)
-        embed.set_thumbnail(url=before.guild.icon.url if before.guild.icon else None)
-        embed.set_footer(text="نظام الحماية • MSA")
+        embed = self._build_log_embed(
+            title="تعديل رسالة",
+            color=0xffff00,
+            member=before.author,
+            fields=[
+                ("الشخص", f"{before.author.mention}", True),
+                ("الآيدي", f"`{before.author.id}`", True),
+                ("الروم", before.channel.mention, True),
+                ("قبل", before.content[:1024] if before.content else "لا يوجد", False),
+                ("بعد", after.content[:1024] if after.content else "لا يوجد", False),
+            ]
+        )
         await self.send_log(before.guild, embed)
 
     @commands.Cog.listener()
@@ -303,12 +378,17 @@ class Logging(commands.Cog):
         if before.nick != after.nick:
             key = f"nick_update_{after.id}_{after.guild.id}_{after.nick}"
             if not self._is_duplicate(key):
-                embed = discord.Embed(title="تغيير الاسم", color=0xffff00, timestamp=datetime.now(timezone.utc))
-                embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
-                embed.add_field(name="قبل", value=before.nick or before.name, inline=True)
-                embed.add_field(name="بعد", value=after.nick or after.name, inline=True)
-                embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
-                embed.set_footer(text="نظام الحماية • MSA")
+                embed = self._build_log_embed(
+                    title="تغيير الاسم",
+                    color=0xffff00,
+                    member=after,
+                    fields=[
+                        ("العضو", f"{after.mention}", True),
+                        ("الآيدي", f"`{after.id}`", True),
+                        ("قبل", before.nick or before.name, True),
+                        ("بعد", after.nick or after.name, True),
+                    ]
+                )
                 await self.send_log(after.guild, embed)
 
         # إضافة رول
@@ -317,17 +397,20 @@ class Logging(commands.Cog):
             key = f"role_add_{after.id}_{new_role.id}"
             if not self._is_duplicate(key):
                 await asyncio.sleep(1)
-                # FIX: التحقق إن الـ entry يخص نفس العضو
                 entry = await self._get_audit_entry(
                     after.guild, discord.AuditLogAction.member_role_update, after.id
                 )
                 if entry:
-                    embed = discord.Embed(title="إعطاء رول", color=0x00ff00, timestamp=datetime.now(timezone.utc))
-                    embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-                    embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
-                    embed.add_field(name="الرول", value=new_role.mention, inline=True)
-                    embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
-                    embed.set_footer(text="نظام الحماية • MSA")
+                    embed = self._build_log_embed(
+                        title="إعطاء رول",
+                        color=0x00ff00,
+                        member=after,
+                        fields=[
+                            ("المسؤول", f"{entry.user.mention}", True),
+                            ("العضو", f"{after.mention}", True),
+                            ("الرول", new_role.mention, True),
+                        ]
+                    )
                     await self.send_log(after.guild, embed)
 
         # سحب رول
@@ -336,17 +419,20 @@ class Logging(commands.Cog):
             key = f"role_remove_{after.id}_{removed_role.id}"
             if not self._is_duplicate(key):
                 await asyncio.sleep(1)
-                # FIX: التحقق إن الـ entry يخص نفس العضو
                 entry = await self._get_audit_entry(
                     after.guild, discord.AuditLogAction.member_role_update, after.id
                 )
                 if entry:
-                    embed = discord.Embed(title="سحب رول", color=0xff0000, timestamp=datetime.now(timezone.utc))
-                    embed.add_field(name="المسؤول", value=f"{entry.user.mention} ({entry.user.id})", inline=False)
-                    embed.add_field(name="العضو", value=f"{after.mention} ({after.id})", inline=False)
-                    embed.add_field(name="الرول", value=removed_role.name, inline=True)
-                    embed.set_thumbnail(url=after.guild.icon.url if after.guild.icon else None)
-                    embed.set_footer(text="نظام الحماية • MSA")
+                    embed = self._build_log_embed(
+                        title="سحب رول",
+                        color=0xff0000,
+                        member=after,
+                        fields=[
+                            ("المسؤول", f"{entry.user.mention}", True),
+                            ("العضو", f"{after.mention}", True),
+                            ("الرول", removed_role.name, True),
+                        ]
+                    )
                     await self.send_log(after.guild, embed)
 
     @commands.Cog.listener()
@@ -354,13 +440,18 @@ class Logging(commands.Cog):
         # دخول روم صوتي
         if before.channel is None and after.channel is not None:
             key = f"vc_join_{member.id}_{after.channel.id}"
-            if self._is_duplicate(key, window=2.0): # تقليل وقت الفلتر للرومات الصوتية
+            if self._is_duplicate(key, window=2.0):
                 return
-            embed = discord.Embed(title="دخول روم صوتي", color=0x00ff00, timestamp=datetime.now(timezone.utc))
-            embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
-            embed.add_field(name="الروم", value=after.channel.name, inline=True)
-            embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
+            embed = self._build_log_embed(
+                title="دخول روم صوتي",
+                color=0x00ff00,
+                member=member,
+                fields=[
+                    ("العضو", f"{member.mention}", True),
+                    ("الآيدي", f"`{member.id}`", True),
+                    ("الروم", after.channel.name, True),
+                ]
+            )
             await self.send_log(member.guild, embed)
 
         # خروج من روم صوتي
@@ -368,11 +459,16 @@ class Logging(commands.Cog):
             key = f"vc_leave_{member.id}_{before.channel.id}"
             if self._is_duplicate(key, window=2.0):
                 return
-            embed = discord.Embed(title="خروج من روم صوتي", color=0xff0000, timestamp=datetime.now(timezone.utc))
-            embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
-            embed.add_field(name="الروم", value=before.channel.name, inline=True)
-            embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
+            embed = self._build_log_embed(
+                title="خروج من روم صوتي",
+                color=0xff0000,
+                member=member,
+                fields=[
+                    ("العضو", f"{member.mention}", True),
+                    ("الآيدي", f"`{member.id}`", True),
+                    ("الروم", before.channel.name, True),
+                ]
+            )
             await self.send_log(member.guild, embed)
 
         # تنقل بين رومات
@@ -380,12 +476,17 @@ class Logging(commands.Cog):
             key = f"vc_move_{member.id}_{before.channel.id}_{after.channel.id}"
             if self._is_duplicate(key):
                 return
-            embed = discord.Embed(title="تنقل بين رومات صوتية", color=0xffff00, timestamp=datetime.now(timezone.utc))
-            embed.add_field(name="العضو", value=f"{member.mention} ({member.id})", inline=False)
-            embed.add_field(name="من", value=before.channel.name, inline=True)
-            embed.add_field(name="إلى", value=after.channel.name, inline=True)
-            embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
-            embed.set_footer(text="نظام الحماية • MSA")
+            embed = self._build_log_embed(
+                title="تنقل بين رومات صوتية",
+                color=0xffff00,
+                member=member,
+                fields=[
+                    ("العضو", f"{member.mention}", True),
+                    ("الآيدي", f"`{member.id}`", True),
+                    ("من", before.channel.name, True),
+                    ("إلى", after.channel.name, True),
+                ]
+            )
             await self.send_log(member.guild, embed)
 
 async def setup(bot):
