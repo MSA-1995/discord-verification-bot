@@ -45,6 +45,10 @@ shutdown_requested = False
 
 _alert_session: aiohttp.ClientSession | None = None
 
+def is_temporary_discord_api_error(error):
+    status = getattr(error, "status", None)
+    return isinstance(error, discord.HTTPException) and status and 500 <= status < 600
+
 async def get_alert_session() -> aiohttp.ClientSession:
     global _alert_session
     if _alert_session is None or _alert_session.closed:
@@ -176,6 +180,10 @@ class MSABot(commands.Bot):
                     print("⚠️ Singleton guard disabled: LOG_CHANNEL_ID/SINGLETON_CHANNEL_ID channel not found.")
             except asyncio.CancelledError:
                 raise
+            except discord.HTTPException as e:
+                if not is_temporary_discord_api_error(e):
+                    print(f"⚠️ Singleton guard error: {e}")
+                    traceback.print_exc()
             except Exception as e:
                 print(f"⚠️ Singleton guard error: {e}")
                 traceback.print_exc()
