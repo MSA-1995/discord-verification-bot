@@ -30,6 +30,12 @@ def _strip_arabic_diacritics(value):
     return ARABIC_DIACRITICS_PATTERN.sub("", value)
 
 
+def _format_surah_name(value):
+    value = _strip_arabic_diacritics(_clean_text(value))
+    value = re.sub(r"^سورة\s+", "", value).strip()
+    return value
+
+
 def _display_text(value):
     if isinstance(value, dict):
         value = _first_present(
@@ -72,7 +78,7 @@ def extract_quran_text(payload):
         raise ValueError("Quran API response did not include ayah text")
 
     surah = data.get("surah") or {}
-    surah_name = _clean_text(surah.get("name") or surah.get("englishName") or "غير معروف")
+    surah_name = _format_surah_name(surah.get("name") or surah.get("englishName") or "غير معروف")
     ayah_number = data.get("numberInSurah") or data.get("number")
 
     return {
