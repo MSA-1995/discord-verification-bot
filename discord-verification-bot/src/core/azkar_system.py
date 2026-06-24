@@ -17,12 +17,17 @@ QURAN_API_URL = "https://api.alquran.cloud/v1/ayah/{ayah_number}/quran-simple-cl
 HADITH_API_URL = os.getenv("HADITH_API_URL", "https://hadithapi.com/api/hadiths")
 HADITH_API_KEY = get_hadith_api_key()
 HADITH_BOOKS = ("sahih-bukhari", "sahih-muslim")
+ARABIC_DIACRITICS_PATTERN = re.compile(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]")
 
 
 def _clean_text(value):
     value = re.sub(r"<[^>]+>", "", str(value or ""))
     value = re.sub(r"\s+", " ", value).strip()
     return value
+
+
+def _strip_arabic_diacritics(value):
+    return ARABIC_DIACRITICS_PATTERN.sub("", value)
 
 
 def _display_text(value):
@@ -89,7 +94,7 @@ def extract_hadith_text(payload):
             "text",
         ),
     )
-    text = _clean_text(text)
+    text = _strip_arabic_diacritics(_clean_text(text))
     if not text:
         raise ValueError("Hadith API response did not include hadith text")
 
