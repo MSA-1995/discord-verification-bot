@@ -25,6 +25,23 @@ def _clean_text(value):
     return value
 
 
+def _display_text(value):
+    if isinstance(value, dict):
+        value = _first_present(
+            value,
+            (
+                "chapterArabic",
+                "bookName",
+                "bookSlug",
+                "chapterEnglish",
+                "englishName",
+                "name",
+                "title",
+            ),
+        )
+    return _clean_text(value)
+
+
 def _first_present(data, keys):
     if isinstance(data, dict):
         for key in keys:
@@ -76,11 +93,11 @@ def extract_hadith_text(payload):
     if not text:
         raise ValueError("Hadith API response did not include hadith text")
 
-    collection = _clean_text(
+    collection = _display_text(
         _first_present(payload, ("collection", "collectionName", "bookSlug", "bookName", "book")) or "Hadith API"
     )
-    hadith_number = _clean_text(_first_present(payload, ("hadithNumber", "hadithNo", "number")) or "")
-    chapter = _clean_text(_first_present(payload, ("chapterTitle", "chapter", "bookName")) or "")
+    hadith_number = _display_text(_first_present(payload, ("hadithNumber", "hadithNo", "number")) or "")
+    chapter = _display_text(_first_present(payload, ("chapterTitle", "chapter", "bookName")) or "")
 
     source_parts = [part for part in (collection, chapter, hadith_number and f"رقم {hadith_number}") if part]
 
