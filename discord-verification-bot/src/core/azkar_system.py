@@ -143,13 +143,16 @@ class AzkarSystem(commands.Cog):
 
     @tasks.loop(minutes=AZKAR_INTERVAL_MINUTES)
     async def azkar_task(self):
+        print(f"🕌 Azkar task running... (every {AZKAR_INTERVAL_MINUTES} minutes)")
         for guild in self.bot.guilds:
             channel = await self._get_or_create_azkar_channel(guild)
             if not channel:
+                print(f"⚠️ No azkar channel found in {guild.name}")
                 continue
 
             item = await self._get_next_item()
             if not item:
+                print("⚠️ Failed to fetch azkar item (both Quran and Hadith failed)")
                 continue
 
             avatar_url = self.bot.user.avatar.url if self.bot.user and self.bot.user.avatar else None
@@ -161,6 +164,7 @@ class AzkarSystem(commands.Cog):
 
             try:
                 await channel.send(embed=embed)
+                print(f"✅ Sent {item['kind']} to #{channel.name} in {guild.name}")
             except discord.Forbidden:
                 print(f"⚠️ Missing permission to send azkar in {guild.name}.")
             except discord.HTTPException as e:
@@ -169,7 +173,15 @@ class AzkarSystem(commands.Cog):
     @azkar_task.before_loop
     async def before_azkar_task(self):
         await self.bot.wait_until_ready()
+        print(f"⏳ Azkar system will start in 10 seconds...")
         await asyncio.sleep(10)
+        print(f"✅ Azkar task started! Will send every {AZKAR_INTERVAL_MINUTES} minutes.")
+
+    @azkar_task.error
+    async def azkar_task_error(self, error):
+        print(f"❌ Azkar task error: {error}")
+        import traceback
+        traceback.print_exc()
 
     async def _get_or_create_azkar_channel(self, guild):
         channel_id = os.getenv("AZKAR_CHANNEL_ID")
@@ -232,18 +244,26 @@ class AzkarSystem(commands.Cog):
                 "apiKey": HADITH_API_KEY,
                 "book": random.choice(HADITH_BOOKS),
                 "status": "Sahih",
-                "paginate": 100,
-                "page": random.randint(1, 20),
+                "paginate": 200,
+                "page": random.randint(1, 15),
             }
             payload = await self._fetch_json(HADITH_API_URL, params=params)
             
-            hadiths = payload.get("hadiths", [])
-            if not hadiths:
-                print("⚠️ No hadiths found in API response")
-                return None
+            # محاولة جلب الأحاديث من الـ payload
+            hadiths = payload.get("hadiths") or payload.get("data")
             
-            hadith = random.choice(hadiths)
-            return extract_hadith_text(hadith)
+            # إذا كانت النتيجة قائمة وفيها عناصر
+            if isinstance(hadiths, list) and hadiths:
+                hadith = random.choice(hadiths)
+                return extract_hadith_text(hadith)
+            
+            # إذا كانت النتيجة حديث مباشر
+            if isinstance(payload, dict) and any(k in payload for k in ["arabic", "hadithArabic", "text"]):
+                return extract_hadith_text(payload)
+            
+            print("⚠️ No hadiths found in API response")
+            return None
+            
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
             print(f"⚠️ Failed to fetch hadith: {e}")
             return None
