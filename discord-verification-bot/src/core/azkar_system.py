@@ -250,16 +250,19 @@ class AzkarSystem(commands.Cog):
             payload = await self._fetch_json(HADITH_API_URL, params=params)
             
             # جلب الأحاديث من الاستجابة
-            hadiths = payload.get("hadiths") or payload.get("data") or []
+            # الـ API يرجع {"hadiths": {"data": [...]}}
+            hadiths_obj = payload.get("hadiths")
+            if isinstance(hadiths_obj, dict):
+                hadiths = hadiths_obj.get("data") or []
+            elif isinstance(hadiths_obj, list):
+                hadiths = hadiths_obj
+            else:
+                hadiths = payload.get("data") or []
             
-            # إذا وجدت قائمة أحاديث
+            # إــذا وجدت قائمة أحاديث
             if isinstance(hadiths, list) and hadiths:
                 hadith = random.choice(hadiths)
                 return extract_hadith_text(hadith)
-            
-            # إذا كانت حديث مباشر
-            if isinstance(payload, dict) and any(k in payload for k in ["arabic", "hadithArabic", "text"]):
-                return extract_hadith_text(payload)
             
             print("⚠️ No hadiths found in API response")
             return None
