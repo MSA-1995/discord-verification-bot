@@ -244,26 +244,32 @@ class AzkarSystem(commands.Cog):
                 "apiKey": HADITH_API_KEY,
                 "book": random.choice(HADITH_BOOKS),
                 "status": "Sahih",
-                "paginate": 200,
-                "page": random.randint(1, 15),
+                "paginate": 100,
+                "page": random.randint(1, 10),
             }
             payload = await self._fetch_json(HADITH_API_URL, params=params)
             
-            # محاولة جلب الأحاديث من الـ payload
-            hadiths = payload.get("hadiths") or payload.get("data")
+            # جلب الأحاديث من الاستجابة
+            hadiths = payload.get("hadiths") or payload.get("data") or []
             
-            # إذا كانت النتيجة قائمة وفيها عناصر
+            # إذا وجدت قائمة أحاديث
             if isinstance(hadiths, list) and hadiths:
                 hadith = random.choice(hadiths)
                 return extract_hadith_text(hadith)
             
-            # إذا كانت النتيجة حديث مباشر
+            # إذا كانت حديث مباشر
             if isinstance(payload, dict) and any(k in payload for k in ["arabic", "hadithArabic", "text"]):
                 return extract_hadith_text(payload)
             
             print("⚠️ No hadiths found in API response")
             return None
             
+        except aiohttp.ClientResponseError as e:
+            if e.status == 404:
+                print(f"⚠️ Hadith page not found (404) - Skipping to Quran.")
+            else:
+                print(f"⚠️ Failed to fetch hadith: {e.status} {e.message}")
+            return None
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
             print(f"⚠️ Failed to fetch hadith: {e}")
             return None
