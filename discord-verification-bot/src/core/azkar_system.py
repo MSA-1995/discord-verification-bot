@@ -232,11 +232,18 @@ class AzkarSystem(commands.Cog):
                 "apiKey": HADITH_API_KEY,
                 "book": random.choice(HADITH_BOOKS),
                 "status": "Sahih",
-                "paginate": 200,
-                "page": random.randint(1, 40),
+                "paginate": 100,
+                "page": random.randint(1, 20),
             }
             payload = await self._fetch_json(HADITH_API_URL, params=params)
-            return extract_hadith_text(payload)
+            
+            hadiths = payload.get("hadiths", [])
+            if not hadiths:
+                print("⚠️ No hadiths found in API response")
+                return None
+            
+            hadith = random.choice(hadiths)
+            return extract_hadith_text(hadith)
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
             print(f"⚠️ Failed to fetch hadith: {e}")
             return None
