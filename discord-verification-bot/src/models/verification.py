@@ -20,31 +20,24 @@ class VerifyButton(discord.ui.View):
 
     @discord.ui.button(label="توثيق الحساب", style=discord.ButtonStyle.green, custom_id="verify_button_v2")
     async def verify(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 1. الاستجابة فوراً للدسكورد لمنع خطأ "Interaction Failed"
-        deferred = False
         try:
-            await interaction.response.defer(ephemeral=True)
-            deferred = True
-        except discord.InteractionResponded:
-            deferred = True
-        except Exception:
-            print("⚠️ Failed to defer interaction (Network issues)")
-
-        try:
-            cog = interaction.client.get_cog('Verification')
-            if not cog:
-                if deferred: await interaction.followup.send("❌ نظام التوثيق غير متاح حالياً.", ephemeral=True)
-                return
-
             member = interaction.user
             if member.bot:
-                if deferred: await interaction.followup.send("❌ لا يمكن توثيق البوتات.", ephemeral=True)
+                await interaction.response.send_message("❌ لا يمكن توثيق البوتات.", ephemeral=True)
                 return
 
-            # التحقق من التفعيل المسبق
+            # التحقق من التفعيل المسبق أولاً
             verified_role = discord.utils.get(interaction.guild.roles, name="Verified")
             if verified_role and verified_role in member.roles:
-                if deferred: await interaction.followup.send("✅ أنت متفعل بالفعل!", ephemeral=True)
+                await interaction.response.send_message("✅ أنت متفعل بالفعل!", ephemeral=True)
+                return
+
+            # 1. الاستجابة فوراً للدسكورد لمنع خطأ "Interaction Failed"
+            await interaction.response.defer(ephemeral=True)
+
+            cog = interaction.client.get_cog('Verification')
+            if not cog:
+                await interaction.followup.send("❌ نظام التوثيق غير متاح حالياً.", ephemeral=True)
                 return
 
             # 2. استخدام utcnow() لتجنب أخطاء المناطق الزمنية
@@ -71,18 +64,21 @@ class VerifyButton(discord.ui.View):
 
             # إرسال المهمة للـ Queue للتعامل مع الـ Rate Limit
             await cog.queue_task(self.add_roles, member, roles_to_add)
-            if deferred: await interaction.followup.send(msg, ephemeral=True)
+            await interaction.followup.send(msg, ephemeral=True)
 
+        except discord.InteractionResponded:
+            print("⚠️ Interaction already responded")
         except discord.Forbidden:
-            if deferred: await interaction.followup.send("❌ لا أملك الصلاحيات المطلوبة لإكمال التوثيق.", ephemeral=True)
-        except aiohttp.ClientError:
-            print("⚠️ Network error during verification followup")
+            try:
+                await interaction.followup.send("❌ لا أملك الصلاحيات المطلوبة لإكمال التوثيق.", ephemeral=True)
+            except:
+                pass
         except Exception as e:
             print(f"⚠️ Verification Error: {e}")
-            if deferred:
-                try:
-                    await interaction.followup.send("❌ حدث خطأ داخلي أثناء التوثيق.", ephemeral=True)
-                except: pass
+            try:
+                await interaction.followup.send("❌ حدث خطأ داخلي أثناء التوثيق.", ephemeral=True)
+            except:
+                pass
 
     async def add_roles(self, member, roles):
         try:
