@@ -41,6 +41,12 @@ class VerifyButton(discord.ui.View):
                 if deferred: await interaction.followup.send("❌ لا يمكن توثيق البوتات.", ephemeral=True)
                 return
 
+            # التحقق من التفعيل المسبق
+            verified_role = discord.utils.get(interaction.guild.roles, name="Verified")
+            if verified_role and verified_role in member.roles:
+                if deferred: await interaction.followup.send("✅ أنت متفعل بالفعل!", ephemeral=True)
+                return
+
             # 2. استخدام utcnow() لتجنب أخطاء المناطق الزمنية
             now = discord.utils.utcnow()
             account_age = (now - member.created_at).days
@@ -48,7 +54,6 @@ class VerifyButton(discord.ui.View):
             has_avatar = member.avatar is not None
 
             # التأكد من وجود الرولات أو إنشائها
-            verified_role = discord.utils.get(interaction.guild.roles, name="Verified")
             if not verified_role:
                 verified_role = await interaction.guild.create_role(name="Verified")
 
