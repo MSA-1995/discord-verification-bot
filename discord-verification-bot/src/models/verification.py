@@ -166,26 +166,24 @@ class Verification(commands.Cog):
                 reason="Captcha verification channel"
             )
 
-            question, answer = _generate_captcha()
-            tries = 0
-
-            embed = discord.Embed(
-                title="🔐 التحقق من الهوية",
-                description=(
-                    f"{member.mention} أجب على السؤال التالي لإتمام التوثيق:\n\n"
-                    f"**كم ناتج: {question} ؟**\n\n"
-                    f"لديك **{CAPTCHA_TIMEOUT} ثانية** و **{CAPTCHA_MAX_TRIES} محاولات**"
-                ),
-                color=0x3498db
-            )
-            embed.set_footer(text="نظام الحماية | MSA")
-            await channel.send(embed=embed)
-
-            # انتظار الإجابة
             def check(m):
                 return m.author.id == member.id and m.channel.id == channel.id
 
-            while tries < CAPTCHA_MAX_TRIES:
+            for attempt in range(1, CAPTCHA_MAX_TRIES + 1):
+                question, answer = _generate_captcha()
+
+                embed = discord.Embed(
+                    title="🔐 التحقق من الهوية",
+                    description=(
+                        f"{member.mention} أجب على السؤال التالي لإتمام التوثيق:\n\n"
+                        f"**كم ناتج: {question} ؟**\n\n"
+                        f"المحاولة **{attempt}** من **{CAPTCHA_MAX_TRIES}** | لديك **{CAPTCHA_TIMEOUT} ثانية**"
+                    ),
+                    color=0x3498db
+                )
+                embed.set_footer(text="نظام الحماية | MSA")
+                await channel.send(embed=embed)
+
                 try:
                     msg = await self.bot.wait_for("message", check=check, timeout=CAPTCHA_TIMEOUT)
                 except asyncio.TimeoutError:
@@ -193,17 +191,13 @@ class Verification(commands.Cog):
                     await asyncio.sleep(3)
                     break
 
-                # فحص الإجابة
                 if msg.content.strip() == str(answer):
                     await self._complete_verification(member, guild, channel)
                     return
                 else:
-                    tries += 1
-                    remaining = CAPTCHA_MAX_TRIES - tries
-                    if remaining > 0:
-                        await channel.send(
-                            f"❌ إجابة خاطئة. تبقى لك **{remaining}** محاولة."
-                        )
+                    if attempt < CAPTCHA_MAX_TRIES:
+                        await channel.send(f"❌ إجابة خاطئة. سيتم إرسال سؤال جديد...")
+                        await asyncio.sleep(1)
                     else:
                         await channel.send("🚫 استنفذت كل المحاولات. سيتم حظرك.")
                         await asyncio.sleep(2)
