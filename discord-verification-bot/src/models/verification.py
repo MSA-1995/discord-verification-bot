@@ -3,8 +3,14 @@ from discord.ext import commands
 from datetime import datetime
 import asyncio
 import aiohttp
+import random
+import logging
+
+logger = logging.getLogger(__name__)
 
 NEW_ACCOUNT_DAYS = 30
+CAPTCHA_TIMEOUT = 60   # ثواني
+CAPTCHA_MAX_TRIES = 3  # محاولات قبل الباند
 
 def guild_owner_only():
     async def predicate(ctx):
@@ -13,6 +19,23 @@ def guild_owner_only():
         await ctx.send("❌ هذا الأمر مخصص لمالك السيرفر فقط.", delete_after=7)
         return False
     return commands.check(predicate)
+
+def _generate_captcha():
+    """توليد سؤال حسابي بسيط"""
+    ops = [
+        ("+", lambda a, b: a + b),
+        ("-", lambda a, b: a - b),
+        ("×", lambda a, b: a * b),
+    ]
+    symbol, func = random.choice(ops)
+    if symbol == "×":
+        a, b = random.randint(2, 9), random.randint(2, 9)
+    elif symbol == "-":
+        a, b = random.randint(5, 20), random.randint(1, 5)
+    else:
+        a, b = random.randint(1, 15), random.randint(1, 15)
+    return f"{a} {symbol} {b}", func(a, b)
+
 
 class VerifyButton(discord.ui.View):
     def __init__(self):
@@ -26,13 +49,11 @@ class VerifyButton(discord.ui.View):
                 await interaction.response.send_message("❌ لا يمكن توثيق البوتات.", ephemeral=True)
                 return
 
-            # التحقق من التفعيل المسبق أولاً
             verified_role = discord.utils.get(interaction.guild.roles, name="Verified")
             if verified_role and verified_role in member.roles:
                 await interaction.response.send_message("✅ أنت متفعل بالفعل!", ephemeral=True)
                 return
 
-            # 1. الاستجابة فوراً للدسكورد لمنع خطأ "Interaction Failed"
             await interaction.response.defer(ephemeral=True)
 
             cog = interaction.client.get_cog('Verification')
@@ -40,44 +61,26 @@ class VerifyButton(discord.ui.View):
                 await interaction.followup.send("❌ نظام التوثيق غير متاح حالياً.", ephemeral=True)
                 return
 
-            # 2. استخدام utcnow() لتجنب أخطاء المناطق الزمنية
-            now = discord.utils.utcnow()
-            account_age = (now - member.created_at).days
-            is_new     = account_age < NEW_ACCOUNT_DAYS
-            has_avatar = member.avatar is not None
+            # منع فتح أكثر من channel واحد لنفس العضو
+            if member.id in cog.active_captchas:
+                await interaction.followup.send("⚠️ لديك جلسة توثيق مفتوحة بالفعل.", ephemeral=True)
+                return
 
-            # التأكد من وجود الرولات أو إنشائها
-            if not verified_role:
-                verified_role = await interaction.guild.create_role(name="Verified")
-
-            roles_to_add = [verified_role]
-            msg = "✅ تم توثيق حسابك بنجاح."
-            if is_new or not has_avatar:
-                watched_role = discord.utils.get(interaction.guild.roles, name="Watched")
-                if not watched_role:
-                    watched_role = await interaction.guild.create_role(
-                        name="Watched",
-                        color=discord.Color.orange()
-                )
-                roles_to_add.append(watched_role)
-                msg = "✅ تم توثيق حسابك. ⚠️ حسابك تحت مراقبة إضافية مؤقتاً."
-
-            # إرسال المهمة للـ Queue للتعامل مع الـ Rate Limit
-            await cog.queue_task(self.add_roles, member, roles_to_add)
-            await interaction.followup.send(msg, ephemeral=True)
+            await interaction.followup.send("⏳ جاري إنشاء غرفة التوثيق...", ephemeral=True)
+            await cog.start_captcha(member, interaction.guild)
 
         except discord.InteractionResponded:
-            print("⚠️ Interaction already responded")
+            pass
         except discord.Forbidden:
             try:
-                await interaction.followup.send("❌ لا أملك الصلاحيات المطلوبة لإكمال التوثيق.", ephemeral=True)
-            except:
+                await interaction.followup.send("❌ لا أملك الصلاحيات المطلوبة.", ephemeral=True)
+            except Exception:
                 pass
         except Exception as e:
-            print(f"⚠️ Verification Error: {e}")
+            logger.error("VerifyButton error: %s", e)
             try:
-                await interaction.followup.send("❌ حدث خطأ داخلي أثناء التوثيق.", ephemeral=True)
-            except:
+                await interaction.followup.send("❌ حدث خطأ داخلي.", ephemeral=True)
+            except Exception:
                 pass
 
     async def add_roles(self, member, roles):
@@ -85,36 +88,31 @@ class VerifyButton(discord.ui.View):
             welcome_role = discord.utils.get(member.guild.roles, name="Welcome")
             if welcome_role and welcome_role in member.roles:
                 await member.remove_roles(welcome_role)
-                print(f"Removed Welcome role from {member.name}")
             await member.add_roles(*roles)
-            print(f"✅ Added roles {[r.name for r in roles]} to {member.name}")
+            logger.info("Added roles %s to %s", [r.name for r in roles], member.name)
         except discord.Forbidden:
-            print(f"⚠️ Missing permissions to add roles to {member.name}")
+            logger.error("Missing permissions to add roles to %s", member.name)
         except (discord.HTTPException, aiohttp.ClientError) as e:
-            print(f"⚠️ Network error adding roles to {member.name}: {e}")
-        except discord.HTTPException as e:
-            print(f"⚠️ HTTP error adding roles to {member.name}: {e}")
+            logger.error("Error adding roles to %s: %s", member.name, e)
 
 
 class Verification(commands.Cog):
     def __init__(self, bot):
-        print("\n>>> [DEBUG] Verification Cog v2.1 Initialized! <<<")
+        print("\n>>> [DEBUG] Verification Cog v3.0 Initialized! <<<")
         self.bot = bot
         self.task_queue = asyncio.Queue()
         self._worker_task = None
+        self.active_captchas: set[int] = set()  # member IDs مع جلسة مفتوحة
 
     async def cog_load(self):
         self._worker_task = asyncio.create_task(self.worker())
         print("✅ Verification worker started")
 
-        # التحقق مما إذا كان الـ View مسجلاً بالفعل لمنع التكرار
         custom_id = "verify_button_v2"
-        is_registered = False
-        for view in self.bot.persistent_views:
-            if any(getattr(item, 'custom_id', None) == custom_id for item in view.children):
-                is_registered = True
-                break
-
+        is_registered = any(
+            any(getattr(item, 'custom_id', None) == custom_id for item in view.children)
+            for view in self.bot.persistent_views
+        )
         if not is_registered:
             self.bot.add_view(VerifyButton())
             print("✅ VerifyButton view registered")
@@ -134,8 +132,8 @@ class Verification(commands.Cog):
                 try:
                     await func(*args)
                 except Exception as e:
-                    print(f"⚠️ Error in queue task: {e}")
-                await asyncio.sleep(1)
+                    logger.error("Queue task error: %s", e)
+                await asyncio.sleep(0.5)
                 self.task_queue.task_done()
             except asyncio.CancelledError:
                 print("✅ Worker cancelled cleanly")
@@ -144,31 +142,133 @@ class Verification(commands.Cog):
     async def queue_task(self, func, *args):
         await self.task_queue.put((func, args))
 
+    # =====================================================
+    # Captcha - إنشاء channel مؤقت وإرسال السؤال
+    # =====================================================
+    async def start_captcha(self, member: discord.Member, guild: discord.Guild):
+        self.active_captchas.add(member.id)
+        channel = None
+        try:
+            # جلب كاتيقوري التفعيل
+            category = discord.utils.get(guild.categories, name="تفعيل")
+
+            # صلاحيات الـ channel - يشوفه العضو والبوت فقط
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_channels=True),
+                member: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            }
+
+            channel = await guild.create_text_channel(
+                name=f"verify-{member.name}",
+                category=category,
+                overwrites=overwrites,
+                reason="Captcha verification channel"
+            )
+
+            question, answer = _generate_captcha()
+            tries = 0
+
+            embed = discord.Embed(
+                title="🔐 التحقق من الهوية",
+                description=(
+                    f"{member.mention} أجب على السؤال التالي لإتمام التوثيق:\n\n"
+                    f"**كم ناتج: {question} ؟**\n\n"
+                    f"لديك **{CAPTCHA_TIMEOUT} ثانية** و **{CAPTCHA_MAX_TRIES} محاولات**"
+                ),
+                color=0x3498db
+            )
+            embed.set_footer(text="نظام الحماية | MSA")
+            await channel.send(embed=embed)
+
+            # انتظار الإجابة
+            def check(m):
+                return m.author.id == member.id and m.channel.id == channel.id
+
+            while tries < CAPTCHA_MAX_TRIES:
+                try:
+                    msg = await self.bot.wait_for("message", check=check, timeout=CAPTCHA_TIMEOUT)
+                except asyncio.TimeoutError:
+                    await channel.send("⏰ انتهى الوقت. أعد المحاولة من زر التوثيق.")
+                    await asyncio.sleep(3)
+                    break
+
+                # فحص الإجابة
+                if msg.content.strip() == str(answer):
+                    await self._complete_verification(member, guild, channel)
+                    return
+                else:
+                    tries += 1
+                    remaining = CAPTCHA_MAX_TRIES - tries
+                    if remaining > 0:
+                        await channel.send(
+                            f"❌ إجابة خاطئة. تبقى لك **{remaining}** محاولة."
+                        )
+                    else:
+                        await channel.send("🚫 استنفذت كل المحاولات. سيتم حظرك.")
+                        await asyncio.sleep(2)
+                        try:
+                            await member.ban(reason="🚫 Failed captcha verification", delete_message_days=1)
+                        except (discord.Forbidden, discord.HTTPException) as e:
+                            logger.error("Failed to ban %s after captcha fail: %s", member.id, e)
+
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.error("Captcha channel error for %s: %s", member.id, e)
+        finally:
+            self.active_captchas.discard(member.id)
+            if channel:
+                await asyncio.sleep(3)
+                try:
+                    await channel.delete(reason="Captcha session ended")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+
+    async def _complete_verification(self, member: discord.Member, guild: discord.Guild, channel: discord.TextChannel):
+        """إعطاء الرولات بعد نجاح الـ Captcha"""
+        now = discord.utils.utcnow()
+        account_age = (now - member.created_at).days
+        is_new = account_age < NEW_ACCOUNT_DAYS
+        has_avatar = member.avatar is not None
+
+        verified_role = discord.utils.get(guild.roles, name="Verified")
+        if not verified_role:
+            verified_role = await guild.create_role(name="Verified")
+
+        roles_to_add = [verified_role]
+        msg = "✅ تم توثيق حسابك بنجاح!"
+
+        if is_new or not has_avatar:
+            watched_role = discord.utils.get(guild.roles, name="Watched")
+            if not watched_role:
+                watched_role = await guild.create_role(name="Watched", color=discord.Color.orange())
+            roles_to_add.append(watched_role)
+            msg = "✅ تم توثيق حسابك. ⚠️ حسابك تحت مراقبة إضافية مؤقتاً."
+
+        await channel.send(msg)
+        view_instance = VerifyButton()
+        await self.queue_task(view_instance.add_roles, member, roles_to_add)
+
+    # =====================================================
+    # Commands
+    # =====================================================
     @commands.command()
     @guild_owner_only()
     async def setup_verify(self, ctx):
-        # منع تنفيذ الأمر إذا كان هناك رسالة تفعيل قيد الإنشاء في نفس الثانية
         if getattr(self, "_setup_lock", False):
             return
         self._setup_lock = True
-        
+
         try:
             await ctx.message.delete()
         except Exception:
-            pass # تجاهل الخطأ إذا لم يمتلك البوت صلاحية حذف الرسائل
+            pass
 
         try:
-            embed = discord.Embed(
-                color=0x2b2d31
-            )
-
-            # صورة السيرفر صغيرة فقط في الـ author
+            embed = discord.Embed(color=0x2b2d31)
             embed.set_author(
                 name=ctx.guild.name,
                 icon_url=ctx.guild.icon.url if ctx.guild.icon else None
             )
-
-            # المحتوى الرئيسي
             embed.add_field(
                 name="التحقق من الهوية",
                 value=(
@@ -177,16 +277,14 @@ class Verification(commands.Cog):
                 ),
                 inline=False
             )
-
             embed.set_footer(text="نظام الحماية | MSA")
-
             await ctx.send(embed=embed, view=VerifyButton())
             print(f"✅ Verification message created in #{ctx.channel.name}")
         except Exception as e:
-            print(f"❌ Error in setup_verify: {e}")
-            await ctx.send(f"❌ حدث خطأ أثناء إنشاء رسالة التوثيق: {e}", delete_after=10)
+            logger.error("setup_verify error: %s", e)
+            await ctx.send(f"❌ حدث خطأ: {e}", delete_after=10)
         finally:
-            await asyncio.sleep(2) # تأخير بسيط لمنع التكرار
+            await asyncio.sleep(2)
             self._setup_lock = False
 
     @commands.command()
@@ -210,13 +308,12 @@ class Verification(commands.Cog):
                     color=discord.Color.blue(),
                     reason="رول ترحيب تلقائي للأعضاء الجدد"
                 )
-                print(f"✅ Created Welcome role")
             await member.add_roles(welcome_role)
-            print(f"✅ Gave Welcome role to {member.name}")
+            logger.info("Gave Welcome role to %s", member.name)
         except discord.Forbidden:
-            print(f"⚠️ Missing permissions to give Welcome role to {member.name}")
+            logger.error("Missing permissions to give Welcome role to %s", member.name)
         except discord.HTTPException as e:
-            print(f"⚠️ HTTP error giving Welcome role: {e}")
+            logger.error("HTTP error giving Welcome role: %s", e)
 
 
 async def setup(bot):
