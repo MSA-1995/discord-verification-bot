@@ -101,6 +101,26 @@ class Protection(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
+        # Honeypot - باند فوري لأي شخص يكتب في روم بترقوري شات
+        honeypot_channel = discord.utils.get(message.guild.text_channels, name="تحذير")
+        if honeypot_channel and message.channel.id == honeypot_channel.id:
+            member = message.author
+            try:
+                await message.delete()
+                embed = self._build_log_embed(
+                    action_type="ban",
+                    title="باند | Honeypot",
+                    member=member,
+                    reason=f"كتب في روم الـ Honeypot: `{message.content[:200]}`",
+                    channel=message.channel,
+                    extra_fields=[("الإجراء", "باند فوري")]
+                )
+                await self.send_security_log(message.guild, embed)
+                await self._queue_ban(member, "🚫 Honeypot triggered - auto ban")
+            except (discord.Forbidden, discord.HTTPException) as e:
+                logger.error("Honeypot ban error: %s", e)
+            return
+
         if message.author.guild_permissions.administrator:
             if not message.content.startswith("!") and not message.content.startswith("/"):
                 return
