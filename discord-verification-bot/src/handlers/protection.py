@@ -103,6 +103,16 @@ def can_channel_create_invite(channel, member):
     return bool(channel.permissions_for(member).create_instant_invite)
 
 
+def can_channel_repair_invite_permission(channel, member):
+    if not channel or member is None or not hasattr(channel, "permissions_for"):
+        return False
+    permissions = channel.permissions_for(member)
+    return bool(
+        not permissions.create_instant_invite
+        and permissions.manage_channels
+    )
+
+
 def get_invite_replacement_channels(invite, bot_member):
     channels = []
     seen_channel_ids = set()
@@ -195,6 +205,28 @@ class Protection(commands.Cog):
                     e,
                 )
         return None
+
+    async def _repair_and_create_single_use_invite(self, invite):
+        guild = invite.guild
+        bot_member = guild.me or guild.get_member(self.bot.user.id)
+        channel = getattr(invite, "channel", None)
+        if not can_channel_repair_invite_permission(channel, bot_member):
+            return None
+
+        overwrites = channel.overwrites_for(bot_member)
+        overwrites.create_instant_invite = True
+        await channel.set_permissions(
+            bot_member,
+            overwrite=overwrites,
+            reason="✅ Allow bot to create single-use replacement invites",
+        )
+        return await channel.create_invite(
+            max_age=getattr(invite, "max_age", 0) or 0,
+            max_uses=1,
+            temporary=getattr(invite, "temporary", False),
+            unique=True,
+            reason="✅ Replaced admin invite with a single-use invite",
+        )
 
     # =====================================================
     # نقطة 9: دالة مساعدة للـ ban عبر queue
@@ -375,6 +407,8 @@ class Protection(commands.Cog):
             created_invite = None
             try:
                 created_invite = await self._create_single_use_invite(invite)
+                if created_invite is None:
+                    created_invite = await self._repair_and_create_single_use_invite(invite)
                 if created_invite is None:
                     logger.error("invite replace failed for %s: no channel allows creating invites", getattr(invite, "code", "unknown"))
                 else:
