@@ -68,6 +68,14 @@ def is_bot_created_invite(inviter, bot_user):
     return bool(getattr(inviter, "bot", False))
 
 
+def should_ignore_invite_create_log(invite, ignored_codes):
+    code = getattr(invite, "code", None)
+    if code in ignored_codes:
+        ignored_codes.remove(code)
+        return True
+    return False
+
+
 def finalize_invite_action(action, original_invite, replacement_invite=None):
     if action == "replace_with_single_use":
         if replacement_invite is not None:
@@ -146,6 +154,7 @@ class Protection(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.user_messages = defaultdict(list)
+        self.ignored_replacement_invite_codes = set()
         self.cleanup_messages_task.start()
 
     def cog_unload(self):
@@ -185,6 +194,8 @@ class Protection(commands.Cog):
                 logger.error("send_security_log failed: %s", e)
             except Exception as e:
                 logger.error("send_security_log unexpected error: %s", e)
+        else:
+            logger.error("send_security_log failed: log channel not found in %s", guild.name)
 
     # =====================================================
     # نقطة 8: _build_log_embed و _get_audit_entry من embed_utils
@@ -409,7 +420,7 @@ class Protection(commands.Cog):
     async def on_invite_create(self, invite):
         guild = invite.guild
         inviter = getattr(invite, "inviter", None)
-        if is_bot_created_invite(inviter, self.bot.user):
+        if should_ignore_invite_create_log(invite, self.ignored_replacement_invite_codes):
             return
 
         member = guild.get_member(inviter.id) if inviter else None
@@ -431,6 +442,7 @@ class Protection(commands.Cog):
                 if created_invite is None:
                     logger.error("invite replace failed for %s: no channel allows creating invites", getattr(invite, "code", "unknown"))
                 else:
+                    self.ignored_replacement_invite_codes.add(created_invite.code)
                     await invite.delete(reason="🚫 Server invites must be single-use")
                     replacement_invite = created_invite
             except (discord.Forbidden, discord.HTTPException) as e:
