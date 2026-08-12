@@ -1,5 +1,0 @@
-discord.py
-cryptography
-aiohttp
-python-dotenv
-psutil
