@@ -95,6 +95,33 @@ def get_invite_log_action_text(action):
     return actions.get(action, "تسجيل فقط")
 
 
+def can_channel_create_invite(channel, member):
+    if not channel:
+        return False
+    if member is None or not hasattr(channel, "permissions_for"):
+        return True
+    return bool(channel.permissions_for(member).create_instant_invite)
+
+
+def get_invite_replacement_channels(invite, bot_member):
+    channels = []
+    seen_channel_ids = set()
+
+    def add_channel(channel):
+        if not can_channel_create_invite(channel, bot_member):
+            return
+        channel_id = getattr(channel, "id", id(channel))
+        if channel_id in seen_channel_ids:
+            return
+        seen_channel_ids.add(channel_id)
+        channels.append(channel)
+
+    add_channel(getattr(invite, "channel", None))
+    for channel in getattr(invite.guild, "text_channels", []):
+        add_channel(channel)
+    return channels
+
+
 class Protection(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -147,6 +174,27 @@ class Protection(commands.Cog):
 
     async def _get_audit_entry(self, guild, action, target_id: int):
         return await get_audit_entry(guild, action, target_id)
+
+    async def _create_single_use_invite(self, invite):
+        guild = invite.guild
+        bot_member = guild.me or guild.get_member(self.bot.user.id)
+        for channel in get_invite_replacement_channels(invite, bot_member):
+            try:
+                return await channel.create_invite(
+                    max_age=getattr(invite, "max_age", 0) or 0,
+                    max_uses=1,
+                    temporary=getattr(invite, "temporary", False),
+                    unique=True,
+                    reason="✅ Replaced admin invite with a single-use invite",
+                )
+            except (discord.Forbidden, discord.HTTPException) as e:
+                logger.error(
+                    "invite replacement create failed in %s for %s: %s",
+                    getattr(channel, "name", getattr(channel, "id", "unknown")),
+                    getattr(invite, "code", "unknown"),
+                    e,
+                )
+        return None
 
     # =====================================================
     # نقطة 9: دالة مساعدة للـ ban عبر queue
@@ -326,15 +374,12 @@ class Protection(commands.Cog):
         elif action == "replace_with_single_use":
             created_invite = None
             try:
-                created_invite = await invite.channel.create_invite(
-                    max_age=getattr(invite, "max_age", 0) or 0,
-                    max_uses=1,
-                    temporary=getattr(invite, "temporary", False),
-                    unique=True,
-                    reason="✅ Replaced admin invite with a single-use invite",
-                )
-                await invite.delete(reason="🚫 Server invites must be single-use")
-                replacement_invite = created_invite
+                created_invite = await self._create_single_use_invite(invite)
+                if created_invite is None:
+                    logger.error("invite replace failed for %s: no channel allows creating invites", getattr(invite, "code", "unknown"))
+                else:
+                    await invite.delete(reason="🚫 Server invites must be single-use")
+                    replacement_invite = created_invite
             except (discord.Forbidden, discord.HTTPException) as e:
                 logger.error("invite replace failed for %s: %s", getattr(invite, "code", "unknown"), e)
                 if created_invite is not None:
