@@ -60,6 +60,41 @@ def format_invite_temporary(invite):
     return "Yes" if getattr(invite, "temporary", False) else "No"
 
 
+def is_bot_created_invite(inviter, bot_user):
+    if not inviter:
+        return False
+    if bot_user and inviter.id == bot_user.id:
+        return True
+    return bool(getattr(inviter, "bot", False))
+
+
+def finalize_invite_action(action, original_invite, replacement_invite=None):
+    if action == "replace_with_single_use":
+        if replacement_invite is not None:
+            return "replace_succeeded", replacement_invite
+        return "replace_failed", original_invite
+    return action, original_invite
+
+
+def get_invite_log_title(action):
+    titles = {
+        "delete_and_log": "دعوة سيرفر | إنشاء دعوة غير مصرح",
+        "replace_succeeded": "دعوة سيرفر | استبدال بدعوة استخدام واحد",
+        "replace_failed": "دعوة سيرفر | فشل استبدال الدعوة",
+        "log_unknown": "دعوة سيرفر | منشئ غير معروف",
+    }
+    return titles.get(action, "دعوة سيرفر | إنشاء دعوة")
+
+
+def get_invite_log_action_text(action):
+    actions = {
+        "delete_and_log": "حذف الدعوة",
+        "replace_succeeded": "حذف الدعوة القديمة وإنشاء دعوة استخدام واحد",
+        "replace_failed": "تم حذف الدعوة القديمة لكن فشل إنشاء دعوة استخدام واحد",
+    }
+    return actions.get(action, "تسجيل فقط")
+
+
 class Protection(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -276,12 +311,12 @@ class Protection(commands.Cog):
     async def on_invite_create(self, invite):
         guild = invite.guild
         inviter = getattr(invite, "inviter", None)
-        if inviter and self.bot.user and inviter.id == self.bot.user.id:
+        if is_bot_created_invite(inviter, self.bot.user):
             return
 
         member = guild.get_member(inviter.id) if inviter else None
         action = get_invite_create_action(member, invite)
-        effective_invite = invite
+        replacement_invite = None
 
         if action == "delete_and_log":
             try:
@@ -291,7 +326,7 @@ class Protection(commands.Cog):
         elif action == "replace_with_single_use":
             try:
                 await invite.delete(reason="🚫 Server invites must be single-use")
-                effective_invite = await invite.channel.create_invite(
+                replacement_invite = await invite.channel.create_invite(
                     max_age=getattr(invite, "max_age", 0) or 0,
                     max_uses=1,
                     temporary=getattr(invite, "temporary", False),
@@ -301,13 +336,7 @@ class Protection(commands.Cog):
             except (discord.Forbidden, discord.HTTPException) as e:
                 logger.error("invite replace failed for %s: %s", getattr(invite, "code", "unknown"), e)
 
-        title = "دعوة سيرفر | إنشاء دعوة"
-        if action == "delete_and_log":
-            title = "دعوة سيرفر | إنشاء دعوة غير مصرح"
-        elif action == "replace_with_single_use":
-            title = "دعوة سيرفر | استبدال بدعوة استخدام واحد"
-        elif action == "log_unknown":
-            title = "دعوة سيرفر | منشئ غير معروف"
+        action, effective_invite = finalize_invite_action(action, invite, replacement_invite)
 
         fields = [
             ("رمز الدعوة", getattr(effective_invite, "code", "غير معروف"), True),
@@ -328,16 +357,14 @@ class Protection(commands.Cog):
             ("الدعوة", getattr(effective_invite, "url", f"https://discord.gg/{effective_invite.code}"), False),
             (
                 "الإجراء",
-                "حذف الدعوة" if action == "delete_and_log"
-                else "حذف الدعوة القديمة وإنشاء دعوة استخدام واحد" if action == "replace_with_single_use"
-                else "تسجيل فقط",
+                get_invite_log_action_text(action),
                 False,
             ),
         ])
 
         embed = self._build_log_embed(
-            title=title,
-            color=0xff0000 if action == "delete_and_log" else 0x3498db,
+            title=get_invite_log_title(action),
+            color=0xff0000 if action in ("delete_and_log", "replace_failed") else 0x3498db,
             member=member,
             user=inviter if not member else None,
             fields=fields,
