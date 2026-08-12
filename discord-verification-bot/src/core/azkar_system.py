@@ -11,7 +11,7 @@ from src.config.config_encrypted import get_hadith_api_key
 
 
 AZKAR_CHANNEL_NAME = os.getenv("AZKAR_CHANNEL_NAME", "اذكار")
-AZKAR_INTERVAL_MINUTES = max(1, int(os.getenv("AZKAR_INTERVAL_MINUTES", "5")))
+AZKAR_INTERVAL_MINUTES = max(1, int(os.getenv("AZKAR_INTERVAL_MINUTES", "20")))
 QURAN_AYAH_COUNT = 6236
 QURAN_API_URL = "https://api.alquran.cloud/v1/ayah/{ayah_number}/quran-simple-clean"
 HADITH_API_URL = os.getenv("HADITH_API_URL", "https://hadithapi.com/api/hadiths")
