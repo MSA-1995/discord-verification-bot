@@ -95,6 +95,16 @@ def get_invite_log_action_text(action):
     return actions.get(action, "تسجيل فقط")
 
 
+def format_invite_failure_reason(error):
+    if error is None:
+        return "لا يوجد سبب مفصل"
+    status = getattr(error, "status", None)
+    message = getattr(error, "text", None) or getattr(error, "message", None) or str(error)
+    if status:
+        return f"Discord HTTP {status}: {message}"[:1024]
+    return str(message)[:1024]
+
+
 def can_channel_create_invite(channel, member):
     if not channel:
         return False
@@ -188,45 +198,53 @@ class Protection(commands.Cog):
     async def _create_single_use_invite(self, invite):
         guild = invite.guild
         bot_member = guild.me or guild.get_member(self.bot.user.id)
+        last_error = None
         for channel in get_invite_replacement_channels(invite, bot_member):
             try:
-                return await channel.create_invite(
+                created_invite = await channel.create_invite(
                     max_age=getattr(invite, "max_age", 0) or 0,
                     max_uses=1,
                     temporary=getattr(invite, "temporary", False),
                     unique=True,
                     reason="✅ Replaced admin invite with a single-use invite",
                 )
+                return created_invite, None
             except (discord.Forbidden, discord.HTTPException) as e:
+                last_error = e
                 logger.error(
                     "invite replacement create failed in %s for %s: %s",
                     getattr(channel, "name", getattr(channel, "id", "unknown")),
                     getattr(invite, "code", "unknown"),
                     e,
                 )
-        return None
+        return None, last_error
 
     async def _repair_and_create_single_use_invite(self, invite):
         guild = invite.guild
         bot_member = guild.me or guild.get_member(self.bot.user.id)
         channel = getattr(invite, "channel", None)
         if not can_channel_repair_invite_permission(channel, bot_member):
-            return None
+            return None, None
 
-        overwrites = channel.overwrites_for(bot_member)
-        overwrites.create_instant_invite = True
-        await channel.set_permissions(
-            bot_member,
-            overwrite=overwrites,
-            reason="✅ Allow bot to create single-use replacement invites",
-        )
-        return await channel.create_invite(
-            max_age=getattr(invite, "max_age", 0) or 0,
-            max_uses=1,
-            temporary=getattr(invite, "temporary", False),
-            unique=True,
-            reason="✅ Replaced admin invite with a single-use invite",
-        )
+        try:
+            overwrites = channel.overwrites_for(bot_member)
+            overwrites.create_instant_invite = True
+            await channel.set_permissions(
+                bot_member,
+                overwrite=overwrites,
+                reason="✅ Allow bot to create single-use replacement invites",
+            )
+            created_invite = await channel.create_invite(
+                max_age=getattr(invite, "max_age", 0) or 0,
+                max_uses=1,
+                temporary=getattr(invite, "temporary", False),
+                unique=True,
+                reason="✅ Replaced admin invite with a single-use invite",
+            )
+            return created_invite, None
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.error("invite permission repair failed for %s: %s", getattr(invite, "code", "unknown"), e)
+            return None, e
 
     # =====================================================
     # نقطة 9: دالة مساعدة للـ ban عبر queue
@@ -397,6 +415,7 @@ class Protection(commands.Cog):
         member = guild.get_member(inviter.id) if inviter else None
         action = get_invite_create_action(member, invite)
         replacement_invite = None
+        replacement_error = None
 
         if action == "delete_and_log":
             try:
@@ -406,15 +425,16 @@ class Protection(commands.Cog):
         elif action == "replace_with_single_use":
             created_invite = None
             try:
-                created_invite = await self._create_single_use_invite(invite)
+                created_invite, replacement_error = await self._create_single_use_invite(invite)
                 if created_invite is None:
-                    created_invite = await self._repair_and_create_single_use_invite(invite)
+                    created_invite, replacement_error = await self._repair_and_create_single_use_invite(invite)
                 if created_invite is None:
                     logger.error("invite replace failed for %s: no channel allows creating invites", getattr(invite, "code", "unknown"))
                 else:
                     await invite.delete(reason="🚫 Server invites must be single-use")
                     replacement_invite = created_invite
             except (discord.Forbidden, discord.HTTPException) as e:
+                replacement_error = e
                 logger.error("invite replace failed for %s: %s", getattr(invite, "code", "unknown"), e)
                 if created_invite is not None:
                     try:
@@ -451,6 +471,8 @@ class Protection(commands.Cog):
                 False,
             ),
         ])
+        if action == "replace_failed":
+            fields.append(("سبب الفشل", format_invite_failure_reason(replacement_error), False))
 
         embed = self._build_log_embed(
             title=get_invite_log_title(action),
