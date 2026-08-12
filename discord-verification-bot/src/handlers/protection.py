@@ -90,7 +90,7 @@ def get_invite_log_action_text(action):
     actions = {
         "delete_and_log": "حذف الدعوة",
         "replace_succeeded": "حذف الدعوة القديمة وإنشاء دعوة استخدام واحد",
-        "replace_failed": "تم حذف الدعوة القديمة لكن فشل إنشاء دعوة استخدام واحد",
+        "replace_failed": "فشل إنشاء دعوة استخدام واحد؛ لم يتم استبدال الدعوة",
     }
     return actions.get(action, "تسجيل فقط")
 
@@ -324,17 +324,28 @@ class Protection(commands.Cog):
             except (discord.Forbidden, discord.HTTPException) as e:
                 logger.error("invite delete failed for %s: %s", getattr(invite, "code", "unknown"), e)
         elif action == "replace_with_single_use":
+            created_invite = None
             try:
-                await invite.delete(reason="🚫 Server invites must be single-use")
-                replacement_invite = await invite.channel.create_invite(
+                created_invite = await invite.channel.create_invite(
                     max_age=getattr(invite, "max_age", 0) or 0,
                     max_uses=1,
                     temporary=getattr(invite, "temporary", False),
                     unique=True,
                     reason="✅ Replaced admin invite with a single-use invite",
                 )
+                await invite.delete(reason="🚫 Server invites must be single-use")
+                replacement_invite = created_invite
             except (discord.Forbidden, discord.HTTPException) as e:
                 logger.error("invite replace failed for %s: %s", getattr(invite, "code", "unknown"), e)
+                if created_invite is not None:
+                    try:
+                        await created_invite.delete(reason="🚫 Cleanup failed invite replacement")
+                    except (discord.Forbidden, discord.HTTPException) as cleanup_error:
+                        logger.error(
+                            "invite replacement cleanup failed for %s: %s",
+                            getattr(created_invite, "code", "unknown"),
+                            cleanup_error,
+                        )
 
         action, effective_invite = finalize_invite_action(action, invite, replacement_invite)
 
