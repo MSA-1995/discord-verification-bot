@@ -16,10 +16,8 @@ SPAM_TIMEFRAME = 10
 MUTE_DURATION = 30
 
 LINK_PATTERN = re.compile(
-    r'https?://\S+'           # http:// أو https://
-    r'|discord\.gg/\S+'       # discord.gg/invite
-    r'|www\.\S+'              # www.example.com
-    r'|\S+\.(com|net|org|io|me|cc|gg|xyz|tk|ml|ga|cf|gq|ru|cn|info|biz|co|tv|ly|link|click|top|online|site|website|store|shop)\b'
+    r'discord\.gg/\S+'
+    r'|discord\.com/invite/\S+'
 , re.IGNORECASE)
 
 class Protection(commands.Cog):
