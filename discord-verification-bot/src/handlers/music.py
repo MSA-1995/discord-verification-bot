@@ -83,7 +83,7 @@ class Music(commands.Cog):
         player.text_channel = ctx.channel
         player.autoplay = wavelink.AutoPlayMode.partial
 
-        tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.YouTube)
+        tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.SoundCloud)
         if not tracks:
             return await ctx.send("❌ ما لقيت نتائج!", delete_after=5)
 
