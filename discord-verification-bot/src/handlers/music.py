@@ -120,7 +120,7 @@ class Music(commands.Cog):
 
         player.text_channel = ctx.channel
 
-        tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.SoundCloud)
+        tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.YouTube)
         if not tracks:
             return await ctx.channel.send("❌ ما لقيت نتائج!", delete_after=5)
 
