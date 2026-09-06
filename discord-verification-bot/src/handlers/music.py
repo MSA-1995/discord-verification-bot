@@ -1,158 +1,175 @@
 import discord
 from discord.ext import commands
-import wavelink
-import logging
+import yt_dlp
 import asyncio
+import logging
 
 logger = logging.getLogger(__name__)
 
+YTDL_OPTIONS = {
+    'format': 'bestaudio/best',
+    'noplaylist': True,
+    'quiet': True,
+    'no_warnings': True,
+    'default_search': 'ytsearch',
+    'source_address': '0.0.0.0',
+    'cookiefile': None,
+}
+
+FFMPEG_OPTIONS = {
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+    'options': '-vn',
+}
+
 
 class MusicControls(discord.ui.View):
-    def __init__(self, player: wavelink.Player):
+    def __init__(self, cog, guild_id):
         super().__init__(timeout=None)
-        self.player = player
+        self.cog = cog
+        self.guild_id = guild_id
 
     @discord.ui.button(emoji="⏸", style=discord.ButtonStyle.secondary)
     async def pause_resume(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.player.paused:
-            await self.player.pause(False)
+        vc = interaction.guild.voice_client
+        if not vc:
+            return await interaction.response.defer()
+        if vc.is_paused():
+            vc.resume()
             button.emoji = "⏸"
         else:
-            await self.player.pause(True)
+            vc.pause()
             button.emoji = "▶️"
         await interaction.response.edit_message(view=self)
 
     @discord.ui.button(emoji="🔁", style=discord.ButtonStyle.secondary)
     async def toggle_loop(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.player.queue.mode == wavelink.QueueMode.loop:
-            self.player.queue.mode = wavelink.QueueMode.normal
-            button.style = discord.ButtonStyle.secondary
-        else:
-            self.player.queue.mode = wavelink.QueueMode.loop
-            button.style = discord.ButtonStyle.success
+        state = self.cog.get_state(self.guild_id)
+        state['loop'] = not state.get('loop', False)
+        button.style = discord.ButtonStyle.success if state['loop'] else discord.ButtonStyle.secondary
         await interaction.response.edit_message(view=self)
 
     @discord.ui.button(emoji="🔀", style=discord.ButtonStyle.secondary)
     async def autoplay(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if getattr(self.player, "autoplay_enabled", False):
-            self.player.autoplay_enabled = False
-            button.style = discord.ButtonStyle.secondary
-        else:
-            self.player.autoplay_enabled = True
-            button.style = discord.ButtonStyle.success
+        state = self.cog.get_state(self.guild_id)
+        state['autoplay'] = not state.get('autoplay', False)
+        button.style = discord.ButtonStyle.success if state['autoplay'] else discord.ButtonStyle.secondary
         await interaction.response.edit_message(view=self)
 
     @discord.ui.button(emoji="⏹", style=discord.ButtonStyle.danger)
     async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.player.queue.clear()
-        await self.player.stop()
-        await self.player.disconnect()
+        vc = interaction.guild.voice_client
+        if vc:
+            self.cog.get_state(self.guild_id)['autoplay'] = False
+            self.cog.get_state(self.guild_id)['loop'] = False
+            await vc.disconnect()
         await interaction.response.defer()
 
 
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self._empty_timers: dict[int, asyncio.Task] = {}
+        self._states = {}
+        self._empty_timers = {}
 
-    @commands.Cog.listener()
-    async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload):
-        logger.info("Wavelink node connected: %s", payload.node.identifier)
+    def get_state(self, guild_id):
+        if guild_id not in self._states:
+            self._states[guild_id] = {'loop': False, 'autoplay': False, 'current': None, 'text_channel': None}
+        return self._states[guild_id]
 
-    @commands.Cog.listener()
-    async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
-        player: wavelink.Player = payload.player
-        if not player or not hasattr(player, "autoplay_enabled"):
-            return
-        if not player.autoplay_enabled:
-            return
-        if player.playing or not player.queue.is_empty:
+    async def search_and_play(self, guild, query, after_autoplay=False):
+        state = self.get_state(guild.id)
+        vc = guild.voice_client
+        if not vc:
             return
 
+        loop = asyncio.get_event_loop()
         try:
-            last_track = payload.track
-            query = last_track.title.split("-")[0].strip()
-            tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.SoundCloud)
-            if tracks and len(tracks) > 1:
-                next_track = next((t for t in tracks[1:] if t.uri != last_track.uri), tracks[1])
-                await player.play(next_track)
-        except Exception:
-            pass
-
-    @commands.Cog.listener()
-    async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload):
-        player: wavelink.Player = payload.player
-        if not hasattr(player, "text_channel") or not player.text_channel:
+            with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ytdl:
+                if after_autoplay:
+                    data = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"ytsearch5:{query}", download=False))
+                    entries = data.get('entries', [])
+                    current_url = state.get('current_url')
+                    track = next((e for e in entries if e.get('webpage_url') != current_url), entries[1] if len(entries) > 1 else entries[0] if entries else None)
+                else:
+                    data = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"ytsearch:{query}", download=False))
+                    entries = data.get('entries', [])
+                    track = entries[0] if entries else None
+        except Exception as e:
+            logger.error("yt-dlp error: %s", e)
             return
 
-        track = payload.track
-        embed = discord.Embed(
-            title="🎵 يشتغل الحين",
-            description=f"**[{track.title}]({track.uri})**",
-            color=0x1db954
-        )
-        embed.add_field(name="المدة", value=f"{int(track.length // 60000)}:{int((track.length % 60000) // 1000):02d}")
-        embed.set_thumbnail(url=track.artwork)
+        if not track:
+            return
 
-        view = MusicControls(player)
-        await player.text_channel.send(embed=embed, view=view)
+        url = track.get('url')
+        title = track.get('title', 'Unknown')
+        webpage_url = track.get('webpage_url', '')
+        thumbnail = track.get('thumbnail')
+        duration = track.get('duration', 0)
+
+        state['current'] = query
+        state['current_url'] = webpage_url
+
+        def after_play(error):
+            if error:
+                logger.error("Player error: %s", error)
+            asyncio.run_coroutine_threadsafe(self._after_track(guild, query), self.bot.loop)
+
+        source = discord.FFmpegPCMAudio(url, **FFMPEG_OPTIONS)
+        vc.play(source, after=after_play)
+
+        text_channel = state.get('text_channel')
+        if text_channel:
+            embed = discord.Embed(
+                title="🎵 يشتغل الحين",
+                description=f"**[{title}]({webpage_url})**",
+                color=0x1db954
+            )
+            mins, secs = divmod(duration, 60)
+            embed.add_field(name="المدة", value=f"{int(mins)}:{int(secs):02d}")
+            if thumbnail:
+                embed.set_thumbnail(url=thumbnail)
+            view = MusicControls(self, guild.id)
+            await text_channel.send(embed=embed, view=view)
+
+    async def _after_track(self, guild, query):
+        state = self.get_state(guild.id)
+        vc = guild.voice_client
+        if not vc or not vc.is_connected():
+            return
+
+        if state.get('loop'):
+            await self.search_and_play(guild, query)
+        elif state.get('autoplay'):
+            await self.search_and_play(guild, query, after_autoplay=True)
 
     @commands.Cog.listener()
-    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+    async def on_voice_state_update(self, member: discord.Member, before, after):
         if member.bot:
             return
-
         for guild in self.bot.guilds:
-            player: wavelink.Player = guild.voice_client
-            if not player or not player.channel:
+            vc = guild.voice_client
+            if not vc or not vc.channel:
                 continue
-
-            humans = [m for m in player.channel.members if not m.bot]
+            humans = [m for m in vc.channel.members if not m.bot]
             guild_id = guild.id
-
             if len(humans) == 0:
                 if guild_id not in self._empty_timers:
-                    self._empty_timers[guild_id] = asyncio.create_task(self._leave_after_timeout(player, guild_id))
+                    self._empty_timers[guild_id] = asyncio.create_task(self._leave_after_timeout(guild, guild_id))
             else:
                 task = self._empty_timers.pop(guild_id, None)
                 if task:
                     task.cancel()
 
-    async def _leave_after_timeout(self, player: wavelink.Player, guild_id: int):
+    async def _leave_after_timeout(self, guild, guild_id):
         await asyncio.sleep(60)
         try:
-            player.queue.clear()
-            await player.stop()
-            await player.disconnect()
+            vc = guild.voice_client
+            if vc:
+                await vc.disconnect()
         except Exception:
             pass
         self._empty_timers.pop(guild_id, None)
-
-    async def play(self, ctx: discord.Message, query: str):
-        if not ctx.author.voice:
-            return await ctx.channel.send("❌ لازم تكون في روم صوتي!", delete_after=5)
-
-        guild = ctx.guild
-        player: wavelink.Player = guild.voice_client
-
-        if not player:
-            player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
-
-        player.text_channel = ctx.channel
-
-        tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.SoundCloud)
-        if not tracks:
-            return await ctx.channel.send("❌ ما لقيت نتائج!", delete_after=5)
-
-        track = tracks[0]
-        await player.queue.put_wait(track)
-
-        if not player.playing:
-            await player.play(player.queue.get())
-        else:
-            await ctx.channel.send(f"✅ أضفت للقائمة: **{track.title}**", delete_after=5)
-
-        await ctx.delete()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -160,18 +177,25 @@ class Music(commands.Cog):
             return
         if message.content.startswith("ش "):
             query = message.content[2:].strip()
-            if query:
-                await self.play(message, query)
+            if not query:
+                return
+            if not message.author.voice:
+                return await message.channel.send("❌ لازم تكون في روم صوتي!", delete_after=5)
+
+            guild = message.guild
+            vc = guild.voice_client
+
+            if not vc:
+                vc = await message.author.voice.channel.connect()
+            elif vc.channel != message.author.voice.channel:
+                await vc.move_to(message.author.voice.channel)
+
+            state = self.get_state(guild.id)
+            state['text_channel'] = message.channel
+
+            await message.delete()
+            await self.search_and_play(guild, query)
 
 
 async def setup(bot):
-    import os
-    lavalink_host = os.getenv("LAVALINK_HOST", "localhost")
-    lavalink_port = os.getenv("LAVALINK_PORT", "2333")
-    lavalink_pass = os.getenv("LAVALINK_PASSWORD", "youshallnotpass")
-
-    uri = f"https://{lavalink_host}" if lavalink_port == "443" else f"http://{lavalink_host}:{lavalink_port}"
-
-    node = wavelink.Node(uri=uri, password=lavalink_pass)
-    await wavelink.Pool.connect(nodes=[node], client=bot)
     await bot.add_cog(Music(bot))
