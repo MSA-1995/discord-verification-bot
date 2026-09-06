@@ -3,8 +3,11 @@ from discord.ext import commands
 import yt_dlp
 import asyncio
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+FFMPEG_EXECUTABLE = os.environ.get('FFMPEG_PATH') or ('/app/.apt/usr/bin/ffmpeg' if os.path.exists('/app/.apt/usr/bin/ffmpeg') else 'ffmpeg')
 
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
@@ -116,7 +119,7 @@ class Music(commands.Cog):
                 logger.error("Player error: %s", error)
             asyncio.run_coroutine_threadsafe(self._after_track(guild, query), self.bot.loop)
 
-        source = discord.FFmpegPCMAudio(url, **FFMPEG_OPTIONS)
+        source = discord.FFmpegPCMAudio(url, executable=FFMPEG_EXECUTABLE, **FFMPEG_OPTIONS)
         vc.play(source, after=after_play)
 
         text_channel = state.get('text_channel')
