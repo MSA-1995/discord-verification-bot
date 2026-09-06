@@ -3,5 +3,5 @@ cryptography
 aiohttp
 python-dotenv
 psutil
-wavelinkv3
+wavelink
 yt-dlp
