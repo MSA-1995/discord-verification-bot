@@ -34,11 +34,11 @@ class MusicControls(discord.ui.View):
 
     @discord.ui.button(emoji="🔀", style=discord.ButtonStyle.secondary)
     async def autoplay(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.player.autoplay == wavelink.AutoPlayMode.enabled:
-            self.player.autoplay = wavelink.AutoPlayMode.disabled
+        if getattr(self.player, "autoplay_enabled", False):
+            self.player.autoplay_enabled = False
             button.style = discord.ButtonStyle.secondary
         else:
-            self.player.autoplay = wavelink.AutoPlayMode.enabled
+            self.player.autoplay_enabled = True
             button.style = discord.ButtonStyle.success
         await interaction.response.edit_message(view=self)
 
@@ -58,6 +58,26 @@ class Music(commands.Cog):
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload):
         logger.info("Wavelink node connected: %s", payload.node.identifier)
+
+    @commands.Cog.listener()
+    async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
+        player: wavelink.Player = payload.player
+        if not player or not hasattr(player, "autoplay_enabled"):
+            return
+        if not player.autoplay_enabled:
+            return
+        if player.playing or not player.queue.is_empty:
+            return
+
+        try:
+            last_track = payload.track
+            query = last_track.title.split("-")[0].strip()
+            tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.SoundCloud)
+            if tracks:
+                next_track = next((t for t in tracks if t.uri != last_track.uri), tracks[0])
+                await player.play(next_track)
+        except Exception:
+            pass
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload):
@@ -120,7 +140,7 @@ class Music(commands.Cog):
 
         player.text_channel = ctx.channel
 
-        tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.YouTube)
+        tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.SoundCloud)
         if not tracks:
             return await ctx.channel.send("❌ ما لقيت نتائج!", delete_after=5)
 
