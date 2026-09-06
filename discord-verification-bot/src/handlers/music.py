@@ -99,14 +99,13 @@ class Music(commands.Cog):
 
 
 async def setup(bot):
-    lavalink_host = __import__("os").getenv("LAVALINK_HOST", "localhost")
-    lavalink_port = int(__import__("os").getenv("LAVALINK_PORT", "2333"))
-    lavalink_pass = __import__("os").getenv("LAVALINK_PASSWORD", "youshallnotpass")
+    import os
+    lavalink_host = os.getenv("LAVALINK_HOST", "localhost")
+    lavalink_port = os.getenv("LAVALINK_PORT", "2333")
+    lavalink_pass = os.getenv("LAVALINK_PASSWORD", "youshallnotpass")
 
-    scheme = "https" if str(lavalink_port) == "443" else "http"
-    node = wavelink.Node(
-        uri=f"{scheme}://{lavalink_host}:{lavalink_port}",
-        password=lavalink_pass
-    )
+    uri = f"https://{lavalink_host}" if lavalink_port == "443" else f"http://{lavalink_host}:{lavalink_port}"
+
+    node = wavelink.Node(uri=uri, password=lavalink_pass)
     await wavelink.Pool.connect(nodes=[node], client=bot)
     await bot.add_cog(Music(bot))
