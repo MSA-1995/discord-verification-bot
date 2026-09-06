@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import wavelink
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ class MusicControls(discord.ui.View):
     @discord.ui.button(emoji="🔀", style=discord.ButtonStyle.secondary)
     async def autoplay(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.player.autoplay == wavelink.AutoPlayMode.enabled:
-            self.player.autoplay = wavelink.AutoPlayMode.partial
+            self.player.autoplay = wavelink.AutoPlayMode.disabled
             button.style = discord.ButtonStyle.secondary
         else:
             self.player.autoplay = wavelink.AutoPlayMode.enabled
@@ -52,6 +53,7 @@ class MusicControls(discord.ui.View):
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._empty_timers: dict[int, asyncio.Task] = {}
 
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload):
@@ -75,22 +77,52 @@ class Music(commands.Cog):
         view = MusicControls(player)
         await player.text_channel.send(embed=embed, view=view)
 
-    @commands.command(name="ش")
-    async def play(self, ctx: commands.Context, *, query: str):
-        if not ctx.author.voice:
-            return await ctx.send("❌ لازم تكون في روم صوتي!", delete_after=5)
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        if member.bot:
+            return
 
-        if not ctx.voice_client:
-            player: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
-        else:
-            player: wavelink.Player = ctx.voice_client
+        for guild in self.bot.guilds:
+            player: wavelink.Player = guild.voice_client
+            if not player or not player.channel:
+                continue
+
+            humans = [m for m in player.channel.members if not m.bot]
+            guild_id = guild.id
+
+            if len(humans) == 0:
+                if guild_id not in self._empty_timers:
+                    self._empty_timers[guild_id] = asyncio.create_task(self._leave_after_timeout(player, guild_id))
+            else:
+                task = self._empty_timers.pop(guild_id, None)
+                if task:
+                    task.cancel()
+
+    async def _leave_after_timeout(self, player: wavelink.Player, guild_id: int):
+        await asyncio.sleep(60)
+        try:
+            player.queue.clear()
+            await player.stop()
+            await player.disconnect()
+        except Exception:
+            pass
+        self._empty_timers.pop(guild_id, None)
+
+    async def play(self, ctx: discord.Message, query: str):
+        if not ctx.author.voice:
+            return await ctx.channel.send("❌ لازم تكون في روم صوتي!", delete_after=5)
+
+        guild = ctx.guild
+        player: wavelink.Player = guild.voice_client
+
+        if not player:
+            player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
 
         player.text_channel = ctx.channel
-        player.autoplay = wavelink.AutoPlayMode.partial
 
         tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.SoundCloud)
         if not tracks:
-            return await ctx.send("❌ ما لقيت نتائج!", delete_after=5)
+            return await ctx.channel.send("❌ ما لقيت نتائج!", delete_after=5)
 
         track = tracks[0]
         await player.queue.put_wait(track)
@@ -98,9 +130,18 @@ class Music(commands.Cog):
         if not player.playing:
             await player.play(player.queue.get())
         else:
-            await ctx.send(f"✅ أضفت للقائمة: **{track.title}**", delete_after=5)
+            await ctx.channel.send(f"✅ أضفت للقائمة: **{track.title}**", delete_after=5)
 
-        await ctx.message.delete()
+        await ctx.delete()
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot:
+            return
+        if message.content.startswith("ش "):
+            query = message.content[2:].strip()
+            if query:
+                await self.play(message, query)
 
 
 async def setup(bot):
