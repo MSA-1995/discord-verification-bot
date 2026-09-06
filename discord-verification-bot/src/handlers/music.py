@@ -14,7 +14,7 @@ YTDL_OPTIONS = {
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
     'cookiefile': '/app/cookies.txt',
-    'extractor_args': {'youtube': {'player_client': ['android']}},
+    'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web_creator']}},
 }
 
 FFMPEG_OPTIONS = {
