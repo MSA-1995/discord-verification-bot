@@ -1,0 +1,7 @@
+discord.py
+cryptography
+aiohttp
+python-dotenv
+psutil
+wavelinkv3
+yt-dlp
