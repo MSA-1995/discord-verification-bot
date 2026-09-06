@@ -4,4 +4,4 @@ aiohttp
 python-dotenv
 psutil
 yt-dlp
-PyNaCl
+davey
