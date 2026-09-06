@@ -103,8 +103,9 @@ async def setup(bot):
     lavalink_port = int(__import__("os").getenv("LAVALINK_PORT", "2333"))
     lavalink_pass = __import__("os").getenv("LAVALINK_PASSWORD", "youshallnotpass")
 
+    scheme = "https" if str(lavalink_port) == "443" else "http"
     node = wavelink.Node(
-        uri=f"http://{lavalink_host}:{lavalink_port}",
+        uri=f"{scheme}://{lavalink_host}:{lavalink_port}",
         password=lavalink_pass
     )
     await wavelink.Pool.connect(nodes=[node], client=bot)
