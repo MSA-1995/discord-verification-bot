@@ -31,10 +31,15 @@ class MusicControls(discord.ui.View):
             button.style = discord.ButtonStyle.success
         await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(emoji="⏭", style=discord.ButtonStyle.secondary)
-    async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.player.skip(force=True)
-        await interaction.response.defer()
+    @discord.ui.button(emoji="🔀", style=discord.ButtonStyle.secondary)
+    async def autoplay(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.player.autoplay == wavelink.AutoPlayMode.enabled:
+            self.player.autoplay = wavelink.AutoPlayMode.partial
+            button.style = discord.ButtonStyle.secondary
+        else:
+            self.player.autoplay = wavelink.AutoPlayMode.enabled
+            button.style = discord.ButtonStyle.success
+        await interaction.response.edit_message(view=self)
 
     @discord.ui.button(emoji="⏹", style=discord.ButtonStyle.danger)
     async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
