@@ -173,8 +173,8 @@ class AzkarSystem(commands.Cog):
     @azkar_task.before_loop
     async def before_azkar_task(self):
         await self.bot.wait_until_ready()
-        print(f"⏳ Azkar system will start in 10 seconds...")
-        await asyncio.sleep(10)
+        print(f"⏳ Azkar system will start in 60 seconds...")
+        await asyncio.sleep(60)
         print(f"✅ Azkar task started! Will send every {AZKAR_INTERVAL_MINUTES} minutes.")
 
     @azkar_task.error
