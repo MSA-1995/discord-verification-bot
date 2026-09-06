@@ -3,6 +3,5 @@ cryptography
 aiohttp
 python-dotenv
 psutil
-wavelink
 yt-dlp
 PyNaCl
