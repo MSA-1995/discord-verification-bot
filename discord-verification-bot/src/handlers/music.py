@@ -73,8 +73,8 @@ class Music(commands.Cog):
             last_track = payload.track
             query = last_track.title.split("-")[0].strip()
             tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.SoundCloud)
-            if tracks:
-                next_track = next((t for t in tracks if t.uri != last_track.uri), tracks[0])
+            if tracks and len(tracks) > 1:
+                next_track = next((t for t in tracks[1:] if t.uri != last_track.uri), tracks[1])
                 await player.play(next_track)
         except Exception:
             pass
