@@ -233,7 +233,11 @@ class TriviaSystem(commands.Cog):
         except asyncio.CancelledError:
             pass
         finally:
-            await self._show_scores(channel, scores)
+            if not self.bot.is_closed():
+                try:
+                    await self._show_scores(channel, scores)
+                except Exception:
+                    pass
             self._games.pop(channel.guild.id, None)
 
     # ------------------------------------------------------------------ #
