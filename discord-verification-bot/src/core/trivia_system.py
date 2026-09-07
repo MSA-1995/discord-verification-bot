@@ -61,7 +61,7 @@ async def _translate(session: aiohttp.ClientSession, text: str) -> str:
             if translated and translated.strip():
                 return translated.strip()
     except Exception as e:
-        _logger.debug("trivia: translation failed: %s", e)
+        _logger.warning("trivia: translation failed: %s", e)
     return text
 
 
@@ -305,7 +305,3 @@ class TriviaSystem(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(TriviaSystem(bot))
-
-
-
-
