@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import asyncio
 import logging
@@ -28,6 +28,39 @@ class Protection(commands.Cog):
 
     def cog_unload(self):
         self.cleanup_messages_task.cancel()
+
+    # ------------------------------------------------------------------ #
+    async def _setup_honeypot_message(self, guild: discord.Guild):
+        channel = discord.utils.get(guild.text_channels, name="تحذير")
+        if not channel:
+            return
+        # تحقق إذا الرسالة موجودة بالفعل
+        async for msg in channel.history(limit=20):
+            if msg.author.id == self.bot.user.id and msg.embeds:
+                return  # موجودة، ما نرسل مرة ثانية
+        embed = discord.Embed(
+            title="تحذير",
+            description="ممنوع الكتابة بهذا الروم، اي شخص يرسل هنا باند فوري",
+            color=discord.Color.red()
+        )
+        await channel.send(embed=embed)
+
+أي شخص يرسل رسالة هنا سيتم **حذف رسالته + باند فوري** بدون تحذير مسبق.",
+            color=0xff0000,
+            timestamp=datetime.now(timezone.utc),
+        )
+        bot_avatar = self.bot.user.avatar.url if self.bot.user.avatar else None
+        embed.set_author(name="نظام الحماية", icon_url=bot_avatar)
+        embed.set_footer(text="نظام الحماية | MSA")
+        try:
+            await channel.send(embed=embed)
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.warning("honeypot: failed to send warning message: %s", e)
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        for guild in self.bot.guilds:
+            await self._setup_honeypot_message(guild)
 
     @tasks.loop(minutes=5)
     async def cleanup_messages_task(self):
