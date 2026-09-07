@@ -76,6 +76,7 @@ class TriviaSystem(commands.Cog):
             "correct":  q["correct"],
             "choices":  choices,
             "category": q.get("category", "عام"),
+            "flag":     q.get("flag"),
         }
 
     # ------------------------------------------------------------------ #
@@ -152,6 +153,8 @@ class TriviaSystem(commands.Cog):
                     color=0x5865F2,
                 )
                 embed.set_footer(text=f"الفئة: {q['category']} • {QUESTION_TIMEOUT} ثانية للإجابة")
+                if q.get("flag"):
+                    embed.set_thumbnail(url=f"https://flagcdn.com/w320/{q['flag']}.png")
                 await channel.send(embed=embed)
 
                 correct_lower = q["correct"].strip().lower()
