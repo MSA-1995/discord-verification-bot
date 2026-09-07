@@ -24,8 +24,8 @@ def _load_used() -> dict:
     if USED_FILE.exists():
         try:
             return json.loads(USED_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            _logger.warning("trivia: failed to load used questions: %s", e)
     return {}
 
 
@@ -173,9 +173,13 @@ class TriviaSystem(commands.Cog):
 
     # ------------------------------------------------------------------ #
     async def _run_game(self, channel: discord.TextChannel):
-        scores: dict[int, int] = {}   # user_id → points
-        used   = _load_used()
-        session: aiohttp.ClientSession = self.bot._http_session or aiohttp.ClientSession()
+        scores: dict[int, int] = {}
+        used = _load_used()
+        loop = asyncio.get_running_loop()
+        own_session = self.bot._http_session is None or self.bot._http_session.closed
+        session: aiohttp.ClientSession = (
+            aiohttp.ClientSession() if own_session else self.bot._http_session
+        )
 
         start_embed = discord.Embed(
             description="**بدأت اللعبة!** اكتب **انتهى** في أي وقت لإيقافها.",
@@ -219,9 +223,9 @@ class TriviaSystem(commands.Cog):
                         t = t[2:].strip()
                     return t
 
-                deadline = asyncio.get_event_loop().time() + QUESTION_TIMEOUT
-                while asyncio.get_event_loop().time() < deadline:
-                    remaining = deadline - asyncio.get_event_loop().time()
+                deadline = loop.time() + QUESTION_TIMEOUT
+                while loop.time() < deadline:
+                    remaining = deadline - loop.time()
                     try:
                         msg: discord.Message = await self.bot.wait_for(
                             "message",
@@ -258,11 +262,13 @@ class TriviaSystem(commands.Cog):
         except asyncio.CancelledError:
             pass
         finally:
+            if own_session and not session.closed:
+                await session.close()
             if not self.bot.is_closed():
                 try:
                     await self._show_scores(channel, scores)
-                except Exception:
-                    pass
+                except discord.HTTPException as e:
+                    _logger.warning("trivia: failed to show scores: %s", e)
             self._games.pop(channel.guild.id, None)
 
     # ------------------------------------------------------------------ #
