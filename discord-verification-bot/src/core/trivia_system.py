@@ -204,6 +204,7 @@ class TriviaSystem(commands.Cog):
 
                 # Wait for correct answer
                 correct_lower = q["ar_correct"].strip().lower()
+                correct_label = labels[q["ar_choices"].index(q["ar_correct"])]
                 answered: set[int] = set()
                 winner_uid: int | None = None
 
@@ -223,7 +224,7 @@ class TriviaSystem(commands.Cog):
                         continue
                     answered.add(msg.author.id)
 
-                    if msg.content.strip().lower() == correct_lower:
+                    if msg.content.strip().lower() in (correct_lower, correct_label):
                         winner_uid = msg.author.id
                         scores[winner_uid] = scores.get(winner_uid, 0) + 1
                         await channel.send(
