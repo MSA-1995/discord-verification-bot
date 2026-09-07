@@ -204,38 +204,38 @@ class TriviaSystem(commands.Cog):
 
                 # Wait for correct answer
                 correct_lower = q["ar_correct"].strip().lower()
-                answered: set[int] = set()   # من جاوب بالفعل
-                winner_event = asyncio.Event()
-                winner_data: dict = {}
+                answered: set[int] = set()
+                winner_uid: int | None = None
 
-                def check(m: discord.Message):
-                    if m.channel.id != channel.id or m.author.bot:
-                        return False
-                    if m.author.id in answered:
-                        return False
-                    answered.add(m.author.id)
-                    if m.content.strip().lower() == correct_lower:
-                        winner_data["msg"] = m
-                        winner_event.set()
-                    return False  # نتعامل مع النتيجة يدوياً
+                deadline = asyncio.get_event_loop().time() + QUESTION_TIMEOUT
+                while asyncio.get_event_loop().time() < deadline:
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    try:
+                        msg: discord.Message = await self.bot.wait_for(
+                            "message",
+                            check=lambda m: m.channel.id == channel.id and not m.author.bot,
+                            timeout=remaining,
+                        )
+                    except asyncio.TimeoutError:
+                        break
 
-                listener_name = "on_message"
-                self.bot.add_listener(check, listener_name)
-                try:
-                    await asyncio.wait_for(winner_event.wait(), timeout=QUESTION_TIMEOUT)
-                    winner_msg = winner_data["msg"]
-                    uid = winner_msg.author.id
-                    scores[uid] = scores.get(uid, 0) + 1
-                    await channel.send(
-                        f"✅ {winner_msg.author.mention} أجاب صح! "
-                        f"**(+1 نقطة — المجموع: {scores[uid]})**"
-                    )
-                except asyncio.TimeoutError:
+                    if msg.author.id in answered:
+                        continue
+                    answered.add(msg.author.id)
+
+                    if msg.content.strip().lower() == correct_lower:
+                        winner_uid = msg.author.id
+                        scores[winner_uid] = scores.get(winner_uid, 0) + 1
+                        await channel.send(
+                            f"✅ {msg.author.mention} أجاب صح! "
+                            f"**(+1 نقطة — المجموع: {scores[winner_uid]})**"
+                        )
+                        break
+
+                if winner_uid is None:
                     await channel.send(
                         f"⏰ انتهى الوقت! الإجابة الصحيحة كانت: **{q['ar_correct']}**"
                     )
-                finally:
-                    self.bot.remove_listener(check, listener_name)
 
                 await asyncio.sleep(3)
 
