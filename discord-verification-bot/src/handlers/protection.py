@@ -58,16 +58,24 @@ class Protection(commands.Cog):
             await self._setup_honeypot_message(guild)
 
     @commands.Cog.listener()
-    async def on_message_delete(self, message):
-        # لو انحذفت رسالة التحذير (Honeypot) نعيد إرسالها فوراً
-        if not message.guild or message.author.id != self.bot.user.id:
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
+        # نستخدم النسخة الـ raw لأنها تشتغل دايماً حتى لو الرسالة مو موجودة
+        # بالكاش الداخلي للبوت (زي بعد إعادة تشغيل البوت أو امتلاء الكاش)
+        if not payload.guild_id:
             return
-        if not message.embeds:
+        guild = self.bot.get_guild(payload.guild_id)
+        if not guild:
             return
-        channel = message.channel
-        if channel.name != "تحذير":
+        channel = guild.get_channel(payload.channel_id)
+        if not channel or channel.name != "تحذير":
             return
-        await self._setup_honeypot_message(message.guild)
+        # لو عندنا الرسالة بالكاش نتأكد إنها من البوت، غير كذا نتحقق فقط من الروم
+        cached = payload.cached_message
+        if cached and cached.author.id != self.bot.user.id:
+            return
+        # _setup_honeypot_message نفسها تتحقق إذا فيه embed من البوت موجود
+        # بآخر 20 رسالة، فما راح ترسل مكررة لو ما احتاجت
+        await self._setup_honeypot_message(guild)
 
     @tasks.loop(minutes=5)
     async def cleanup_messages_task(self):
