@@ -231,6 +231,9 @@ class TriviaSystem(commands.Cog):
                     except asyncio.TimeoutError:
                         break
 
+                    if msg.content.strip() == "انتهى":
+                        raise asyncio.CancelledError
+
                     if msg.author.id in answered:
                         continue
                     answered.add(msg.author.id)
