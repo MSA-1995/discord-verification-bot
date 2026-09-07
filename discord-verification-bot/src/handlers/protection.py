@@ -57,6 +57,18 @@ class Protection(commands.Cog):
         for guild in self.bot.guilds:
             await self._setup_honeypot_message(guild)
 
+    @commands.Cog.listener()
+    async def on_message_delete(self, message):
+        # لو انحذفت رسالة التحذير (Honeypot) نعيد إرسالها فوراً
+        if not message.guild or message.author.id != self.bot.user.id:
+            return
+        if not message.embeds:
+            return
+        channel = message.channel
+        if channel.name != "تحذير":
+            return
+        await self._setup_honeypot_message(message.guild)
+
     @tasks.loop(minutes=5)
     async def cleanup_messages_task(self):
         now = datetime.now()
