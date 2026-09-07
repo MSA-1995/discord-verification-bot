@@ -204,29 +204,38 @@ class TriviaSystem(commands.Cog):
 
                 # Wait for correct answer
                 correct_lower = q["ar_correct"].strip().lower()
+                answered: set[int] = set()   # من جاوب بالفعل
+                winner_event = asyncio.Event()
+                winner_data: dict = {}
 
                 def check(m: discord.Message):
-                    return (
-                        m.channel.id == channel.id
-                        and not m.author.bot
-                        and m.content.strip().lower() == correct_lower
-                    )
+                    if m.channel.id != channel.id or m.author.bot:
+                        return False
+                    if m.author.id in answered:
+                        return False
+                    answered.add(m.author.id)
+                    if m.content.strip().lower() == correct_lower:
+                        winner_data["msg"] = m
+                        winner_event.set()
+                    return False  # نتعامل مع النتيجة يدوياً
 
+                listener_name = "on_message"
+                self.bot.add_listener(check, listener_name)
                 try:
-                    winner_msg: discord.Message = await self.bot.wait_for(
-                        "message", check=check, timeout=QUESTION_TIMEOUT
-                    )
+                    await asyncio.wait_for(winner_event.wait(), timeout=QUESTION_TIMEOUT)
+                    winner_msg = winner_data["msg"]
                     uid = winner_msg.author.id
                     scores[uid] = scores.get(uid, 0) + 1
                     await channel.send(
                         f"✅ {winner_msg.author.mention} أجاب صح! "
                         f"**(+1 نقطة — المجموع: {scores[uid]})**"
                     )
-
                 except asyncio.TimeoutError:
                     await channel.send(
                         f"⏰ انتهى الوقت! الإجابة الصحيحة كانت: **{q['ar_correct']}**"
                     )
+                finally:
+                    self.bot.remove_listener(check, listener_name)
 
                 await asyncio.sleep(3)
 
