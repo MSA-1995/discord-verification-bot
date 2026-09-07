@@ -41,12 +41,7 @@ class Protection(commands.Cog):
         embed = discord.Embed(
             title="تحذير",
             description="ممنوع الكتابة بهذا الروم، اي شخص يرسل هنا باند فوري",
-            color=discord.Color.red()
-        )
-        await channel.send(embed=embed)
-
-أي شخص يرسل رسالة هنا سيتم **حذف رسالته + باند فوري** بدون تحذير مسبق.",
-            color=0xff0000,
+            color=discord.Color.red(),
             timestamp=datetime.now(timezone.utc),
         )
         bot_avatar = self.bot.user.avatar.url if self.bot.user.avatar else None
