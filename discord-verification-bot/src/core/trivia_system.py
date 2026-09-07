@@ -177,7 +177,11 @@ class TriviaSystem(commands.Cog):
         used   = _load_used()
         session: aiohttp.ClientSession = self.bot._http_session or aiohttp.ClientSession()
 
-        await channel.send("🎮 **بدأت اللعبة!** اكتب **انتهى** في أي وقت لإيقافها.\n━━━━━━━━━━━━━━━━━━━━")
+        start_embed = discord.Embed(
+            description="🎮 **بدأت اللعبة!** اكتب **انتهى** في أي وقت لإيقافها.",
+            color=0x2ecc71,
+        )
+        await channel.send(embed=start_embed)
 
         try:
             while True:
