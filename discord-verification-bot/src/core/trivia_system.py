@@ -208,6 +208,13 @@ class TriviaSystem(commands.Cog):
                 answered: set[int] = set()
                 winner_uid: int | None = None
 
+                def normalize(text: str) -> str:
+                    t = text.strip().lower()
+                    # شيل "ا. " أو "ب. " إلخ من أول النص
+                    if len(t) > 2 and t[1] in (".", "،", "-", " ") and t[0] in ("ا", "ب", "ج", "د"):
+                        t = t[2:].strip()
+                    return t
+
                 deadline = asyncio.get_event_loop().time() + QUESTION_TIMEOUT
                 while asyncio.get_event_loop().time() < deadline:
                     remaining = deadline - asyncio.get_event_loop().time()
@@ -224,7 +231,8 @@ class TriviaSystem(commands.Cog):
                         continue
                     answered.add(msg.author.id)
 
-                    if msg.content.strip().lower() in (correct_lower, correct_label):
+                    answer = normalize(msg.content)
+                    if answer in (correct_lower, correct_label):
                         winner_uid = msg.author.id
                         scores[winner_uid] = scores.get(winner_uid, 0) + 1
                         await channel.send(
