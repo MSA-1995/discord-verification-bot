@@ -50,13 +50,21 @@ def _mark_used(used: dict, question: str):
 
 
 async def _translate(session: aiohttp.ClientSession, text: str) -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    }
     try:
         async with session.get(
             TRANSLATE_API,
             params={"client": "gtx", "sl": "en", "tl": "ar", "dt": "t", "q": text},
+            headers=headers,
             timeout=aiohttp.ClientTimeout(total=6),
         ) as r:
-            data = await r.json(content_type=None)
+            body = await r.text()
+            if not body.strip():
+                _logger.warning("trivia: translation empty response, status=%s", r.status)
+                return text
+            data = json.loads(body)
             translated = "".join(part[0] for part in data[0] if part[0])
             if translated and translated.strip():
                 return translated.strip()
