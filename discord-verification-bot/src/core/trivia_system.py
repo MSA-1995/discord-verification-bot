@@ -190,7 +190,7 @@ class TriviaSystem(commands.Cog):
                 _save_used(used)
 
                 # Build question embed
-                labels   = ["أ", "ب", "ج", "د"]
+                labels   = ["ا", "ب", "ج", "د"]
                 choices_text = "\n".join(
                     f"**{labels[i]}**. {c}" for i, c in enumerate(q["ar_choices"])
                 )
