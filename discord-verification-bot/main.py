@@ -26,6 +26,7 @@ logging.basicConfig(
 class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8") 
         self.end_headers()
         self.wfile.write("ᴹˢᴬ Core is Healthy".encode("utf-8"))
 
