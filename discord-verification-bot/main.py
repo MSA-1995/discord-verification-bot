@@ -27,7 +27,7 @@ class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"ᴹˢᴬ Core is Healthy")
+        self.wfile.write("ᴹˢᴬ Core is Healthy".encode("utf-8"))
 
     def log_message(self, format, *args):
         return
