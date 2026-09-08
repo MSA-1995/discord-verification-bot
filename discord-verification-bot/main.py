@@ -27,7 +27,7 @@ class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Verification Bot is Healthy")
+        self.wfile.write(b"MSA Core is Healthy")
 
     def log_message(self, format, *args):
         return
@@ -85,7 +85,7 @@ class MSABot(commands.Bot):
         if not CRITICAL_WEBHOOK:
             return
         fields = [
-            {"name": "Bot",        "value": "Verification Bot",                          "inline": True},
+            {"name": "Bot",        "value": "MSA Core",                          "inline": True},
             {"name": "Error Type", "value": error_type,                                   "inline": True},
             {"name": "Timestamp",  "value": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), "inline": True},
             {"name": "Message",    "value": message,                                      "inline": False},
@@ -96,7 +96,7 @@ class MSABot(commands.Bot):
             "title": "🚨 CRITICAL ALERT",
             "color": 0xff0000,
             "fields": fields,
-            "footer": {"text": "MSA Verification Bot • System Alerts"},
+            "footer": {"text": "MSA Core • System Alerts"},
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         try:
@@ -558,3 +558,4 @@ try:
     asyncio.run(main())
 except KeyboardInterrupt:
     print("🛑 Bot stopped manually.")
+
