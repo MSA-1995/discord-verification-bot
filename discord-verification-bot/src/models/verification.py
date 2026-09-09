@@ -42,7 +42,7 @@ class VerifyButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="توثيق الحساب", style=discord.ButtonStyle.secondary, custom_id="verify_button_v2")
+    @discord.ui.button(label="التفعيل", style=discord.ButtonStyle.secondary, custom_id="verify_button_v2")
     async def verify(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             member = interaction.user
