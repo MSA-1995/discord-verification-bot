@@ -23,6 +23,14 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
+
+class DiscordVoiceWarningFilter(logging.Filter):
+    def filter(self, record):
+        return "voice will NOT be supported" not in record.getMessage()
+
+
+logging.getLogger("discord.client").addFilter(DiscordVoiceWarningFilter())
+
 # ========================= HEALTH CHECK SERVER =========================
 class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
