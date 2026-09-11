@@ -13,6 +13,34 @@ NEW_ACCOUNT_DAYS = 30
 CAPTCHA_TIMEOUT = 60   # ثواني
 CAPTCHA_MAX_TRIES = 3  # محاولات قبل الباند
 
+
+async def _get_or_create_role(
+    guild: discord.Guild,
+    role_name: str,
+    *,
+    color: discord.Color | None = None,
+    reason: str | None = None,
+    legacy_names: tuple[str, ...] = (),
+):
+    role = channels_config.get_role(guild, role_name)
+    if role:
+        return role
+
+    role = channels_config.get_role(guild, role_name, legacy_names)
+    if role:
+        try:
+            await role.edit(name=role_name, reason=f"تحديث اسم الرتبة إلى {role_name}")
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.warning("Could not rename legacy role %s in %s: %s", role.name, guild.name, e)
+        return role
+
+    kwargs = {"name": role_name}
+    if color is not None:
+        kwargs["color"] = color
+    if reason is not None:
+        kwargs["reason"] = reason
+    return await guild.create_role(**kwargs)
+
 def guild_owner_only():
     async def predicate(ctx):
         if ctx.guild and ctx.author.id == ctx.guild.owner_id:
@@ -90,10 +118,12 @@ class VerifyButton(discord.ui.View):
 
     async def add_roles(self, member, roles):
         try:
-            welcome_role = channels_config.get_role(
+            welcome_role = await _get_or_create_role(
                 member.guild,
                 channels_config.WELCOME_ROLE_NAME,
-                channels_config.LEGACY_WELCOME_ROLE_NAMES,
+                color=discord.Color.blue(),
+                reason="رول ترحيب تلقائي للأعضاء الجدد",
+                legacy_names=channels_config.LEGACY_WELCOME_ROLE_NAMES,
             )
             if welcome_role and welcome_role in member.roles:
                 await member.remove_roles(welcome_role)
@@ -258,7 +288,7 @@ class Verification(commands.Cog):
         is_new = account_age < NEW_ACCOUNT_DAYS
         has_avatar = member.avatar is not None
 
-        verified_role = await self._get_or_create_role(
+        verified_role = await _get_or_create_role(
             guild,
             channels_config.VERIFIED_ROLE_NAME,
             legacy_names=channels_config.LEGACY_VERIFIED_ROLE_NAMES,
@@ -268,7 +298,7 @@ class Verification(commands.Cog):
         msg = "✅ تم توثيق حسابك بنجاح!"
 
         if is_new or not has_avatar:
-            watched_role = await self._get_or_create_role(
+            watched_role = await _get_or_create_role(
                 guild,
                 channels_config.WATCHED_ROLE_NAME,
                 color=discord.Color.orange(),
@@ -326,34 +356,6 @@ class Verification(commands.Cog):
         await ctx.send("🛑 جاري إيقاف البوت... سيتم قطع الاتصال فوراً.")
         await self.bot.close()
 
-    async def _get_or_create_role(
-        self,
-        guild: discord.Guild,
-        role_name: str,
-        *,
-        color: discord.Color | None = None,
-        reason: str | None = None,
-        legacy_names: tuple[str, ...] = (),
-    ):
-        role = channels_config.get_role(guild, role_name)
-        if role:
-            return role
-
-        role = channels_config.get_role(guild, role_name, legacy_names)
-        if role:
-            try:
-                await role.edit(name=role_name, reason=f"تحديث اسم الرتبة إلى {role_name}")
-            except (discord.Forbidden, discord.HTTPException) as e:
-                logger.warning("Could not rename legacy role %s in %s: %s", role.name, guild.name, e)
-            return role
-
-        kwargs = {"name": role_name}
-        if color is not None:
-            kwargs["color"] = color
-        if reason is not None:
-            kwargs["reason"] = reason
-        return await guild.create_role(**kwargs)
-
     @commands.Cog.listener()
     async def on_member_join(self, member):
         if member.bot:
@@ -362,18 +364,13 @@ class Verification(commands.Cog):
 
     async def add_welcome_role(self, member):
         try:
-            welcome_role = channels_config.get_role(
+            welcome_role = await _get_or_create_role(
                 member.guild,
                 channels_config.WELCOME_ROLE_NAME,
-                channels_config.LEGACY_WELCOME_ROLE_NAMES,
+                color=discord.Color.blue(),
+                reason="رول ترحيب تلقائي للأعضاء الجدد",
+                legacy_names=channels_config.LEGACY_WELCOME_ROLE_NAMES,
             )
-            if not welcome_role:
-                welcome_role = await self._get_or_create_role(
-                    member.guild,
-                    channels_config.WELCOME_ROLE_NAME,
-                    color=discord.Color.blue(),
-                    reason="رول ترحيب تلقائي للأعضاء الجدد"
-                )
             await member.add_roles(welcome_role)
             logger.info("Gave %s role to %s", channels_config.WELCOME_ROLE_NAME, member.name)
         except discord.Forbidden:
