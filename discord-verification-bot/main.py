@@ -83,7 +83,7 @@ class ᴹˢᴬBot(commands.Bot):
         self._http_session: aiohttp.ClientSession | None = None
         self._alert_session: aiohttp.ClientSession | None = None
         self._singleton_task: asyncio.Task | None = None
-        self._lease_message_id: int | None = None
+        self._lease_message_ids: dict[int, int] = {}
         print("✅ ᴹˢᴬBot __init__ done")
 
     async def _get_alert_session(self) -> aiohttp.ClientSession:
@@ -216,14 +216,14 @@ class ᴹˢᴬBot(commands.Bot):
 
         while not self.is_closed():
             try:
-                lease_channel = await self._get_lease_channel()
-                if lease_channel:
-                    should_stop = await self._sync_singleton_lease(lease_channel)
+                lease_channels = await self._get_lease_channels()
+                if not lease_channels:
+                    print("⚠️ Singleton guard disabled: no status channel found or created.")
+                else:
+                    should_stop = await self._sync_singleton_leases(lease_channels)
                     if should_stop:
                         await self._shutdown_for_newer_instance()
                         return
-                else:
-                    print("⚠️ Singleton guard disabled: LOG_CHANNEL_ID/SINGLETON_CHANNEL_ID channel not found.")
             except asyncio.CancelledError:
                 raise
             except discord.HTTPException as e:
@@ -236,22 +236,18 @@ class ᴹˢᴬBot(commands.Bot):
 
             await asyncio.sleep(LEASE_CHECK_SECONDS)
 
-    async def _get_lease_channel(self):
+    async def _get_lease_channels(self):
+        channels = []
         for guild in self.guilds:
             channel = channels_config.get_singleton_channel(guild)
-            if channel:
-                return channel
+            if not channel:
+                channel = await self._create_lease_channel(guild)
+            if not channel:
+                channel = channels_config.get_log_channel(guild)
 
-        for guild in self.guilds:
-            channel = await self._create_lease_channel(guild)
             if channel:
-                return channel
-
-        for guild in self.guilds:
-            channel = channels_config.get_log_channel(guild)
-            if channel:
-                return channel
-        return None
+                channels.append(channel)
+        return channels
 
     async def _create_lease_channel(self, guild):
         me = guild.me or guild.get_member(self.user.id)
@@ -277,20 +273,21 @@ class ᴹˢᴬBot(commands.Bot):
         return None
 
     async def _find_lease_message(self, channel):
-        if self._lease_message_id:
+        message_id = self._lease_message_ids.get(channel.id)
+        if message_id:
             try:
-                message = await channel.fetch_message(self._lease_message_id)
+                message = await channel.fetch_message(message_id)
                 if message.author.id == self.user.id and self._is_lease_message(message):
                     return message
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                self._lease_message_id = None
+                self._lease_message_ids.pop(channel.id, None)
 
         lease_messages = await self._collect_lease_messages(channel)
         if not lease_messages:
             return None
 
         message = lease_messages[0]
-        self._lease_message_id = message.id
+        self._lease_message_ids[channel.id] = message.id
         return message
 
     async def _collect_lease_messages(self, channel):
@@ -376,20 +373,24 @@ class ᴹˢᴬBot(commands.Bot):
         embed.set_footer(text=f"نظام الحماية | ᴹˢᴬ | {LEASE_MARKER}")
         return embed
 
-    async def _sync_singleton_lease(self, channel):
+    async def _sync_singleton_leases(self, channels):
         now = time.time()
-        message = await self._find_lease_message(channel)
-        payload = self._read_lease_payload(message)
 
-        owner_id = payload.get("instance_id")
-        owner_started_at = float(payload.get("started_at", 0) or 0)
-        heartbeat_at = float(payload.get("heartbeat_at", 0) or 0)
-        owner_is_newer = owner_id != INSTANCE_ID and owner_started_at > INSTANCE_STARTED_AT
-        owner_is_alive = now - heartbeat_at < LEASE_STALE_SECONDS
+        channel_messages = []
+        for channel in channels:
+            message = await self._find_lease_message(channel)
+            payload = self._read_lease_payload(message)
+            channel_messages.append((channel, message))
 
-        if owner_is_newer and owner_is_alive:
-            print(f"🛑 Newer bot instance detected ({owner_id}). Stopping this instance.")
-            return True
+            owner_id = payload.get("instance_id")
+            owner_started_at = float(payload.get("started_at", 0) or 0)
+            heartbeat_at = float(payload.get("heartbeat_at", 0) or 0)
+            owner_is_newer = owner_id != INSTANCE_ID and owner_started_at > INSTANCE_STARTED_AT
+            owner_is_alive = now - heartbeat_at < LEASE_STALE_SECONDS
+
+            if owner_is_newer and owner_is_alive:
+                print(f"🛑 Newer bot instance detected ({owner_id}). Stopping this instance.")
+                return True
 
         lease_payload = {
             "instance_id": INSTANCE_ID,
@@ -399,11 +400,12 @@ class ᴹˢᴬBot(commands.Bot):
         }
         embed = self._build_lease_embed(lease_payload)
 
-        message = await self._write_lease_message(channel, message, embed)
-        if not message:
-            return False
+        for channel, message in channel_messages:
+            message = await self._write_lease_message(channel, message, embed)
+            if not message:
+                continue
 
-        await self._delete_duplicate_lease_messages(channel, message.id)
+            await self._delete_duplicate_lease_messages(channel, message.id)
 
         return False
 
@@ -414,10 +416,10 @@ class ᴹˢᴬBot(commands.Bot):
                     await message.edit(content="", embed=embed)
                 else:
                     message = await channel.send(embed=embed)
-                    self._lease_message_id = message.id
+                    self._lease_message_ids[channel.id] = message.id
                 return message
             except discord.NotFound:
-                self._lease_message_id = None
+                self._lease_message_ids.pop(channel.id, None)
                 message = None
             except discord.Forbidden:
                 print("⚠️ Missing permission to update singleton lease message.")
