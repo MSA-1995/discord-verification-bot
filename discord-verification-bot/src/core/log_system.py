@@ -421,17 +421,23 @@ class Logging(commands.Cog):
             return
 
         await asyncio.sleep(1)
-        entry = await self._get_audit_entry(member.guild, discord.AuditLogAction.kick, member.id)
-        if entry:
+
+        # نتحقق من الباند أولاً قبل الكيك
+        ban_entry = await self._get_audit_entry(member.guild, discord.AuditLogAction.ban, member.id)
+        if ban_entry:
+            return  # الباند يسجله on_member_ban بشكل منفصل
+
+        kick_entry = await self._get_audit_entry(member.guild, discord.AuditLogAction.kick, member.id)
+        if kick_entry:
             embed = self._build_log_embed(
                 title="طرد عضو",
                 color=0xff0000,
                 member=member,
                 fields=[
-                    ("المسؤول", f"{entry.user.mention}", True),
+                    ("المسؤول", f"{kick_entry.user.mention}", True),
                     ("العضو", f"{member.name}", True),
                     ("الآيدي", f"`{member.id}`", True),
-                    ("السبب", entry.reason or "لا يوجد", False),
+                    ("السبب", kick_entry.reason or "لا يوجد", False),
                 ]
             )
             await self.send_log(member.guild, embed)
