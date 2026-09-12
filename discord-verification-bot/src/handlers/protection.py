@@ -110,6 +110,7 @@ class Protection(commands.Cog):
         # عشان نعتمد على الـ ID (أدق وما ينكسر بتغيير الاسم) مو مقارنة الاسم فقط.
         # ملاحظة: هذا بالذاكرة فقط، يشتغل تلقائياً لأي عدد سيرفرات بدون أي تهيئة يدوية.
         self._honeypot_channel_ids: dict[int, int] = {}
+        self._webhook_ban_timestamps: dict[int, float] = {}
         self.cleanup_messages_task.start()
 
     def cog_unload(self):
@@ -792,9 +793,11 @@ class Protection(commands.Cog):
     # =====================================================
     @commands.Cog.listener()
     async def on_webhooks_update(self, channel):
-        key = f"webhook_ban_{channel.id}"
-        if self._is_duplicate(key, window=10.0):
+        now = datetime.now(timezone.utc).timestamp()
+        last = self._webhook_ban_timestamps.get(channel.id, 0)
+        if now - last < 10.0:
             return
+        self._webhook_ban_timestamps[channel.id] = now
 
         await asyncio.sleep(1)
 
