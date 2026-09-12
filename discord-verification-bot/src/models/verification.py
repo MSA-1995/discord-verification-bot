@@ -95,9 +95,12 @@ class VerifyButton(discord.ui.View):
                 return
 
             # منع فتح أكثر من channel واحد لنفس العضو
+            # نفحص ونحجز الجلسة بعملية واحدة متتالية بدون أي await بينهم،
+            # عشان لو ضغط العضو الزر مرتين بسرعة (Race Condition) ما ينفتح له غرفتين
             if member.id in cog.active_captchas:
                 await interaction.followup.send("⚠️ لديك جلسة توثيق مفتوحة بالفعل.", ephemeral=True)
                 return
+            cog.active_captchas.add(member.id)
 
             await interaction.followup.send("⏳ جاري إنشاء غرفة التوثيق...", ephemeral=True)
             await cog.start_captcha(member, interaction.guild, interaction=interaction)
@@ -195,6 +198,10 @@ class Verification(commands.Cog):
     # Captcha - إنشاء channel مؤقت وإرسال السؤال
     # =====================================================
     async def start_captcha(self, member: discord.Member, guild: discord.Guild, interaction: discord.Interaction = None):
+        # ملاحظة: الحجز بـ active_captchas صار يتم فوراً بـ VerifyButton.verify()
+        # (بدون await بينه وبين الفحص) عشان نسد نافذة الـ race condition لو
+        # ضغط العضو الزر مرتين بسرعة. هنا بس نضمن إنه محجوز حتى لو استدعيت
+        # هذي الدالة من مكان ثاني بالمستقبل.
         self.active_captchas.add(member.id)
         channel = None
         try:
@@ -266,7 +273,7 @@ class Verification(commands.Cog):
                         await channel.send("🚫 استنفذت كل المحاولات. سيتم حظرك.")
                         await asyncio.sleep(2)
                         try:
-                            await member.ban(reason="🚫 Failed captcha verification", delete_message_days=1)
+                            await member.ban(reason="🚫 Failed captcha verification", delete_message_seconds=86400)
                         except (discord.Forbidden, discord.HTTPException) as e:
                             logger.error("Failed to ban %s after captcha fail: %s", member.id, e)
 
