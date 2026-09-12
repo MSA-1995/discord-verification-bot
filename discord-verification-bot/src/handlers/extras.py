@@ -32,7 +32,6 @@ class Extras(commands.Cog):
 
         guild = member.guild
 
-        # إيجاد أو إنشاء روم الترحيب
         welcome_channel = channels_config.get_welcome_channel(guild)
         if not welcome_channel:
             try:
@@ -44,15 +43,13 @@ class Extras(commands.Cog):
                 logger.error("Failed to create welcome channel: %s", e)
                 return
 
-        # embed الترحيب
+        avatar_url = member.display_avatar.url if member.display_avatar else None
         embed = discord.Embed(
             title="🎉 عضو جديد!",
             description=f"أهلاً وسهلاً {member.mention} في **{guild.name}**!",
             color=0x2ecc71,
             timestamp=datetime.now(timezone.utc)
         )
-
-        avatar_url = member.display_avatar.url if member.display_avatar else None
         embed.set_thumbnail(url=avatar_url)
         embed.add_field(name="الاسم", value=str(member), inline=True)
         embed.add_field(name="الآيدي", value=f"`{member.id}`", inline=True)
@@ -64,42 +61,6 @@ class Extras(commands.Cog):
             await welcome_channel.send(embed=embed)
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.error("Failed to send welcome message: %s", e)
-
-        # =====================================================
-        # 2. معلومات العضو في اللوقات
-        # =====================================================
-        log_channel = channels_config.get_log_channel(guild)
-        if not log_channel:
-            return
-
-        now = discord.utils.utcnow()
-        account_age = (now - member.created_at).days
-        joined_at = member.joined_at.strftime("%Y-%m-%d %H:%M") if member.joined_at else "غير معروف"
-
-        # تحديد إذا الحساب جديد
-        account_status = "⚠️ حساب جديد" if account_age < 30 else "✅ حساب قديم"
-        has_avatar = "✅ يوجد" if member.avatar else "❌ لا يوجد"
-
-        info_embed = discord.Embed(
-            title="📋 معلومات العضو الجديد",
-            color=0x3498db,
-            timestamp=datetime.now(timezone.utc)
-        )
-        info_embed.set_thumbnail(url=avatar_url)
-        info_embed.add_field(name="العضو", value=f"{member.mention}", inline=True)
-        info_embed.add_field(name="الآيدي", value=f"`{member.id}`", inline=True)
-        info_embed.add_field(name="صورة الملف", value=has_avatar, inline=True)
-        info_embed.add_field(name="تاريخ إنشاء الحساب", value=member.created_at.strftime("%Y-%m-%d %H:%M"), inline=True)
-        info_embed.add_field(name="عمر الحساب", value=f"{account_age} يوم", inline=True)
-        info_embed.add_field(name="حالة الحساب", value=account_status, inline=True)
-        info_embed.add_field(name="تاريخ الانضمام", value=joined_at, inline=True)
-        info_embed.add_field(name="عدد الأعضاء", value=str(guild.member_count), inline=True)
-        info_embed.set_footer(text="نظام الحماية | ᴹˢᴬ")
-
-        try:
-            await log_channel.send(embed=info_embed)
-        except (discord.Forbidden, discord.HTTPException) as e:
-            logger.error("Failed to send member info to log: %s", e)
 
     # =====================================================
     # 3. تنبيه Mass Ban
