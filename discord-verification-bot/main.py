@@ -455,6 +455,10 @@ class ᴹˢᴬBot(commands.Bot):
             return
         if isinstance(error, commands.MissingPermissions):
             await ctx.send(f"❌ ليس لديك صلاحية لاستخدام هذا الأمر. المطلوب: {error.missing_permissions}", delete_after=7)
+        elif isinstance(error, commands.CheckFailure):
+            # فشل متوقع (زي guild_owner_only) - الرسالة للمستخدم أصلاً اترسلت
+            # من داخل الـ check نفسه، فما نحتاج نطبع traceback كامل بالكونسول.
+            print(f"ℹ️ Check failed for command '{ctx.command}' (user: {ctx.author.id})")
         else:
             print(f"❌ Command Error in {ctx.command}: {error}")
             traceback.print_exc()
