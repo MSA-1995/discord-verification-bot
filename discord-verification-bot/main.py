@@ -70,8 +70,8 @@ def is_temporary_discord_api_error(error):
     return isinstance(error, discord.HTTPException) and status and 500 <= status < 600
 
 if not TOKEN:
-    print("❌ ERROR: Failed to decrypt DISCORD_TOKEN!")
-    print("Please check ENCRYPTION_KEY.")
+    print("❌ ERROR: DISCORD_TOKEN is missing!")
+    print("Please add DISCORD_TOKEN to your environment variables on Koyeb.")
     exit(1)
 
 print(f"✅ Token loaded successfully")
