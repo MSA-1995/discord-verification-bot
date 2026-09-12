@@ -77,6 +77,9 @@ class Protection(commands.Cog):
         for task in self._lockdown_guilds.values():
             task.cancel()
 
+    def _spam_key(self, member):
+        return (member.guild.id, member.id)
+
     # ================================================================
     # Raid Detection Helpers
     # ================================================================
@@ -506,13 +509,14 @@ class Protection(commands.Cog):
 
         # 2. فحص السبام
         now = datetime.now()
-        self.user_messages[member.id].append(now)
-        self.user_messages[member.id] = [
-            t for t in self.user_messages[member.id]
+        spam_key = self._spam_key(member)
+        self.user_messages[spam_key].append(now)
+        self.user_messages[spam_key] = [
+            t for t in self.user_messages[spam_key]
             if (now - t).total_seconds() < SPAM_TIMEFRAME
         ]
 
-        if len(self.user_messages[member.id]) >= SPAM_THRESHOLD:
+        if len(self.user_messages[spam_key]) >= SPAM_THRESHOLD:
             try:
                 def is_spammer(m):
                     return m.author.id == member.id
@@ -534,7 +538,7 @@ class Protection(commands.Cog):
                     ]
                 )
                 await self.send_security_log(message.guild, embed)
-                self.user_messages[member.id].clear()
+                self.user_messages[spam_key].clear()
             except (discord.Forbidden, discord.HTTPException) as e:
                 logger.error("on_message spam timeout error: %s", e)
 
