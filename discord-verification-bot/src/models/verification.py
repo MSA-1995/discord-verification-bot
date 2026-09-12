@@ -292,7 +292,15 @@ class Verification(commands.Cog):
                 try:
                     await asyncio.wait_for(answered.wait(), timeout=CAPTCHA_TIMEOUT)
                 except asyncio.TimeoutError:
-                    await channel.send("⏰ انتهى الوقت. أعد المحاولة من زر التوثيق.")
+                    # تايم أوت للعضو لو ما تجاوب
+                    try:
+                        await member.timeout(
+                            timedelta(minutes=10),
+                            reason="⏰ لم يكمل التحقق في الوقت المحدد"
+                        )
+                    except (discord.Forbidden, discord.HTTPException) as e:
+                        logger.error("Failed to timeout %s after captcha timeout: %s", member.id, e)
+                    await channel.send("⏰ انتهى الوقت. تم تطبيق تايم أوت 10 دقائق.")
                     await asyncio.sleep(3)
                     break
 
@@ -308,6 +316,23 @@ class Verification(commands.Cog):
                         await asyncio.sleep(2)
                         try:
                             await member.ban(reason="🚫 Failed captcha verification", delete_message_seconds=86400)
+                            # لوق الباند في روم اللوقات
+                            log_cog = self.bot.get_cog('Logging')
+                            if log_cog:
+                                from src.utils.embed_utils import build_log_embed
+                                embed = build_log_embed(
+                                    self.bot,
+                                    title="باند | فشل التحقق",
+                                    color=0xff0000,
+                                    member=member,
+                                    fields=[
+                                        ("العضو", f"{member.mention}", True),
+                                        ("الآيدي", f"`{member.id}`", True),
+                                        ("السبب", f"فشل {CAPTCHA_MAX_TRIES} محاولات كابتشا", False),
+                                        ("الإجراء", "باند نهائي", True),
+                                    ]
+                                )
+                                await log_cog.send_log(member.guild, embed)
                         except (discord.Forbidden, discord.HTTPException) as e:
                             logger.error("Failed to ban %s after captcha fail: %s", member.id, e)
 
