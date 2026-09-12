@@ -169,14 +169,24 @@ class Logging(commands.Cog):
         if self._is_duplicate(key):
             return
 
+        now = discord.utils.utcnow()
+        account_age = (now - member.created_at).days
+        joined_at = member.joined_at.strftime("%Y-%m-%d %H:%M") if member.joined_at else "غير معروف"
+        account_status = "⚠️ حساب جديد" if account_age < 30 else "✅ حساب قديم"
+        has_avatar = "✅ يوجد" if member.avatar else "❌ لا يوجد"
+
         embed = self._build_log_embed(
-            title="دخول السيرفر",
+            title="📋 معلومات العضو الجديد",
             color=0x00ff00,
             member=member,
             fields=[
                 ("العضو", f"{member.mention}", True),
                 ("الآيدي", f"`{member.id}`", True),
+                ("صورة الملف", has_avatar, True),
                 ("تاريخ إنشاء الحساب", member.created_at.strftime("%Y-%m-%d %H:%M"), True),
+                ("عمر الحساب", f"{account_age} يوم", True),
+                ("حالة الحساب", account_status, True),
+                ("تاريخ الانضمام", joined_at, True),
                 ("عدد الأعضاء", str(member.guild.member_count), True),
             ]
         )
