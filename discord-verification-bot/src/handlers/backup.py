@@ -51,6 +51,7 @@ class Backup(commands.Cog):
             if role.managed:  # رولات البوتات - تخطى
                 continue
             data["roles"].append({
+                "id": role.id,
                 "name": role.name,
                 "color": role.color.value,
                 "permissions": role.permissions.value,
@@ -64,7 +65,9 @@ class Backup(commands.Cog):
             overwrites = {}
             for target, overwrite in category.overwrites.items():
                 allow, deny = overwrite.pair()
-                overwrites[target.name] = {
+                overwrites[str(target.id)] = {
+                    "id": target.id,
+                    "name": target.name,
                     "type": "role" if isinstance(target, discord.Role) else "member",
                     "allow": allow.value,
                     "deny": deny.value
@@ -83,7 +86,9 @@ class Backup(commands.Cog):
             overwrites = {}
             for target, overwrite in channel.overwrites.items():
                 allow, deny = overwrite.pair()
-                overwrites[target.name] = {
+                overwrites[str(target.id)] = {
+                    "id": target.id,
+                    "name": target.name,
                     "type": "role" if isinstance(target, discord.Role) else "member",
                     "allow": allow.value,
                     "deny": deny.value
@@ -159,14 +164,33 @@ class Backup(commands.Cog):
         guild = ctx.guild
         stats = {"roles": 0, "categories": 0, "channels": 0, "errors": 0}
 
+        total_items = len(data.get("roles", [])) + len(data.get("categories", [])) + len(data.get("channels", []))
+        done_items = 0
+
+        async def _bump_progress():
+            nonlocal done_items
+            done_items += 1
+            if done_items % 5 == 0 or done_items == total_items:
+                try:
+                    await msg.edit(content=f"⏳ جاري استعادة السيرفر... ({done_items}/{total_items})")
+                except discord.HTTPException:
+                    pass
+
+        # يربط الـ ID القديم (من ملف الـ backup) بالرول الفعلي الحالي (سواء تم
+        # إنشاؤه الآن أو كان موجود بنفس الاسم أصلاً). هذا يخلي مطابقة صلاحيات
+        # القنوات (overwrites) تعتمد على الهوية الحقيقية للرول بدل الاسم فقط.
+        role_id_map: dict[int, discord.Role] = {}
+
         try:
             # 1. استعادة الرولات
             existing_roles = {r.name: r for r in guild.roles}
             for role_data in data.get("roles", []):
                 try:
-                    if role_data["name"] in existing_roles:
+                    existing = existing_roles.get(role_data["name"])
+                    if existing:
+                        role_id_map[role_data.get("id")] = existing
                         continue  # الرول موجود، تخطى
-                    await guild.create_role(
+                    new_role = await guild.create_role(
                         name=role_data["name"],
                         color=discord.Color(role_data["color"]),
                         permissions=discord.Permissions(role_data["permissions"]),
@@ -174,15 +198,13 @@ class Backup(commands.Cog):
                         mentionable=role_data["mentionable"],
                         reason="🔄 Restore backup"
                     )
+                    role_id_map[role_data.get("id")] = new_role
                     stats["roles"] += 1
+                    await _bump_progress()
                     await asyncio.sleep(0.5)  # تجنب rate limit
                 except (discord.Forbidden, discord.HTTPException) as e:
                     logger.error("Failed to create role %s: %s", role_data["name"], e)
                     stats["errors"] += 1
-
-            # تحديث قائمة الرولات بعد الإنشاء
-            await guild.chunk()
-            existing_roles = {r.name: r for r in guild.roles}
 
             # 2. استعادة الكاتيقوريات
             existing_categories = {c.name: c for c in guild.categories}
@@ -190,13 +212,14 @@ class Backup(commands.Cog):
                 try:
                     if cat_data["name"] in existing_categories:
                         continue
-                    overwrites = self._build_overwrites(guild, cat_data["overwrites"])
+                    overwrites = self._build_overwrites(guild, role_id_map, cat_data["overwrites"])
                     await guild.create_category(
                         name=cat_data["name"],
                         overwrites=overwrites,
                         reason="🔄 Restore backup"
                     )
                     stats["categories"] += 1
+                    await _bump_progress()
                     await asyncio.sleep(0.5)
                 except (discord.Forbidden, discord.HTTPException) as e:
                     logger.error("Failed to create category %s: %s", cat_data["name"], e)
@@ -213,7 +236,7 @@ class Backup(commands.Cog):
                         continue
 
                     category = existing_categories.get(ch_data.get("category"))
-                    overwrites = self._build_overwrites(guild, ch_data["overwrites"])
+                    overwrites = self._build_overwrites(guild, role_id_map, ch_data["overwrites"])
 
                     if ch_data["type"] == "text":
                         await guild.create_text_channel(
@@ -236,6 +259,7 @@ class Backup(commands.Cog):
                         )
 
                     stats["channels"] += 1
+                    await _bump_progress()
                     await asyncio.sleep(0.5)
                 except (discord.Forbidden, discord.HTTPException) as e:
                     logger.error("Failed to create channel %s: %s", ch_data["name"], e)
@@ -258,14 +282,25 @@ class Backup(commands.Cog):
     # =====================================================
     # دالة مساعدة لبناء overwrites من الـ backup
     # =====================================================
-    def _build_overwrites(self, guild, raw_overwrites: dict) -> dict:
+    def _build_overwrites(self, guild, role_id_map: dict, raw_overwrites: dict) -> dict:
         overwrites = {}
-        for name, data in raw_overwrites.items():
-            target = discord.utils.get(guild.roles, name=name)
-            if not target and data["type"] == "member":
-                target = discord.utils.get(guild.members, name=name)
+        for key, data in raw_overwrites.items():
+            old_id = data.get("id")
+            name = data.get("name", key)
+            target = None
+
+            if data["type"] == "role":
+                # الأولوية لمطابقة الرول عن طريق الـ ID المحفوظ وقت الباكب
+                # (يشتغل حتى لو تغيّر اسم الرول لاحقاً). لو ما لقيناه، نرجع للاسم.
+                target = role_id_map.get(old_id) or discord.utils.get(guild.roles, name=name)
+            else:
+                # الأعضاء عندهم نفس الـ ID دايماً في ديسكورد، فنجرب الـ ID
+                # الحقيقي مباشرة (العضو لازم يكون لسه في السيرفر)، وبعدين الاسم كحل أخير.
+                target = guild.get_member(old_id) or discord.utils.get(guild.members, name=name)
+
             if not target:
                 continue
+
             overwrite = discord.PermissionOverwrite.from_pair(
                 discord.Permissions(data["allow"]),
                 discord.Permissions(data["deny"])
