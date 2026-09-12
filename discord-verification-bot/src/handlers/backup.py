@@ -39,6 +39,7 @@ class Backup(commands.Cog):
         data = {
             "guild_name": guild.name,
             "saved_at": datetime.now(timezone.utc).isoformat(),
+            "everyone_permissions": guild.default_role.permissions.value,
             "roles": [],
             "categories": [],
             "channels": []
@@ -206,6 +207,21 @@ class Backup(commands.Cog):
                     logger.error("Failed to create role %s: %s", role_data["name"], e)
                     stats["errors"] += 1
 
+            # صلاحيات @everyone نفسها (ما ينحفظش/يترجعش تلقائياً لأنه مش رول قابل للإنشاء)
+            everyone_perms = data.get("everyone_permissions")
+            if everyone_perms is not None:
+                try:
+                    await guild.default_role.edit(
+                        permissions=discord.Permissions(everyone_perms),
+                        reason="🔄 Restore backup"
+                    )
+                except (discord.Forbidden, discord.HTTPException) as e:
+                    logger.error("Failed to restore @everyone permissions: %s", e)
+                    stats["errors"] += 1
+
+            # ترتيب الرولات (الهرمية) - بنفس الترتيب المحفوظ بالباكب
+            await self._restore_role_order(guild, data.get("roles", []), role_id_map, stats)
+
             # 2. استعادة الكاتيقوريات
             existing_categories = {c.name: c for c in guild.categories}
             for cat_data in data.get("categories", []):
@@ -265,6 +281,9 @@ class Backup(commands.Cog):
                     logger.error("Failed to create channel %s: %s", ch_data["name"], e)
                     stats["errors"] += 1
 
+            # ترتيب الكاتيقوريات والرومات - بنفس الترتيب المحفوظ بالباكب
+            await self._restore_channel_order(guild, data, stats)
+
         except Exception as e:
             logger.error("Restore failed: %s", e)
             await msg.edit(content=f"❌ فشلت الاستعادة: {e}")
@@ -274,7 +293,7 @@ class Backup(commands.Cog):
 
         saved_at = data.get("saved_at", "غير معروف")
         await msg.edit(content=(
-            f"✅ تمت الاستعادة من نسخة `{saved_at[:10]}`\n"
+            f"✅ تمت الاستعادة من نسخة `{saved_at[:10]}` (شامل الترتيب وصلاحيات @everyone)\n"
             f"**{stats['roles']}** رول | **{stats['categories']}** كاتيقوري | **{stats['channels']}** روم"
             + (f" | ⚠️ {stats['errors']} أخطاء" if stats["errors"] else "")
         ))
@@ -307,6 +326,82 @@ class Backup(commands.Cog):
             )
             overwrites[target] = overwrite
         return overwrites
+
+    # =====================================================
+    # ترتيب الرولات (الهرمية) دفعة واحدة عبر edit_role_positions
+    # =====================================================
+    async def _restore_role_order(self, guild, roles_data: list, role_id_map: dict, stats: dict):
+        bot_member = guild.me
+        if not bot_member or not bot_member.top_role:
+            return
+
+        # ما نقدر نحط رول عند مستوى رول البوت الأعلى أو فوقه - ديسكورد هيرفض
+        max_position = bot_member.top_role.position - 1
+        if max_position < 1:
+            logger.warning("Bot's top role is too low to reorder any roles.")
+            return
+
+        positions = {}
+        pos = 1
+        for role_data in roles_data:  # roles_data محفوظة بالترتيب الصحيح من الأسفل للأعلى
+            role = role_id_map.get(role_data.get("id"))
+            if not role or role.managed:
+                continue
+            if pos > max_position:
+                logger.warning(
+                    "Stopped restoring role order at '%s': above the bot's own top role.", role.name
+                )
+                break
+            positions[role] = pos
+            pos += 1
+
+        if not positions:
+            return
+
+        try:
+            await guild.edit_role_positions(positions=positions, reason="🔄 Restore backup - ترتيب الرولات")
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.error("Failed to restore role order: %s", e)
+            stats["errors"] += 1
+
+    # =====================================================
+    # ترتيب الكاتيقوريات والرومات دفعة واحدة عبر PATCH channels
+    # =====================================================
+    async def _restore_channel_order(self, guild, data: dict, stats: dict):
+        category_map = {c.name: c for c in guild.categories}
+        channel_map = {
+            c.name: c for c in guild.channels if not isinstance(c, discord.CategoryChannel)
+        }
+
+        payload = []
+        for i, cat_data in enumerate(data.get("categories", [])):
+            category = category_map.get(cat_data["name"])
+            if category:
+                payload.append({"id": category.id, "position": i})
+
+        # الرومات لازم ترتيبها يكون مستقل داخل كل كاتيقوري (وبرة أي كاتيقوري) على حدة
+        grouped: dict = {}
+        for ch_data in data.get("channels", []):
+            grouped.setdefault(ch_data.get("category"), []).append(ch_data)
+
+        for ch_list in grouped.values():
+            for i, ch_data in enumerate(ch_list):
+                channel = channel_map.get(ch_data["name"])
+                if channel:
+                    payload.append({"id": channel.id, "position": i})
+
+        if not payload:
+            return
+
+        try:
+            # نستخدم الـ HTTP endpoint مباشرة لأن discord.py ما يوفر دالة عامة
+            # لتعديل ترتيب عدة رومات دفعة وحدة (PATCH /guilds/{id}/channels)
+            await self.bot.http.bulk_channel_update(
+                guild.id, payload, reason="🔄 Restore backup - ترتيب الرومات"
+            )
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.error("Failed to restore channel order: %s", e)
+            stats["errors"] += 1
 
 
 async def setup(bot):
