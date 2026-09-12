@@ -793,7 +793,16 @@ class Protection(commands.Cog):
     @commands.Cog.listener()
     async def on_webhooks_update(self, channel):
         await asyncio.sleep(1)
-        entry = await self._get_audit_entry(channel.guild, discord.AuditLogAction.webhook_create, channel.id)
+
+        # نجيب آخر entry إنشاء ويب هوك بدون فلتر ID لأن target هو الويب هوك مو الروم
+        entry = None
+        try:
+            async for e in channel.guild.audit_logs(limit=5, action=discord.AuditLogAction.webhook_create):
+                entry = e
+                break
+        except (discord.Forbidden, discord.HTTPException):
+            return
+
         if not entry:
             return
 
