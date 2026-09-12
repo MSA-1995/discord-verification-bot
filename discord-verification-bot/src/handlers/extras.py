@@ -11,8 +11,8 @@ from src.config import channels_config
 
 MASS_BAN_THRESHOLD = 2
 MASS_BAN_WINDOW = 20
-MASS_KICK_THRESHOLD = 3
-MASS_KICK_WINDOW = 60
+MASS_KICK_THRESHOLD = 2
+MASS_KICK_WINDOW = 20
 
 
 class Extras(commands.Cog):
@@ -162,8 +162,8 @@ class Extras(commands.Cog):
         tracker[key].clear()
         await self._send_mass_alert(guild, moderator, action_type, count, threshold, window)
 
-        if action_type != "باند":
-            return
+        # نفس إجراء الباند التلقائي يطبّق على Mass Ban وMass Kick معاً
+        # (الاستثناء الوحيد هو البوت نفسه والأونر)
         if moderator.id == self.bot.user.id or moderator.id == guild.owner_id:
             return
 
@@ -171,10 +171,14 @@ class Extras(commands.Cog):
         if not member:
             return
 
+        action_label = "bans" if action_type == "باند" else "kicks"
         try:
-            await member.ban(reason=f"🚫 Mass Ban: {count} bans within {window} seconds", delete_message_seconds=86400)
+            await member.ban(
+                reason=f"🚫 Mass {action_type}: {count} {action_label} within {window} seconds",
+                delete_message_seconds=86400,
+            )
         except (discord.Forbidden, discord.HTTPException) as e:
-            logger.error("Failed to ban mass-ban moderator %s: %s", moderator.id, e)
+            logger.error("Failed to ban mass-%s moderator %s: %s", action_type, moderator.id, e)
 
     # =====================================================
     # دالة إرسال تنبيه Mass Action
