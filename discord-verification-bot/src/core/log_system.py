@@ -81,6 +81,42 @@ class Logging(commands.Cog):
         return await get_audit_entry(guild, action, target_id)
 
     # =====================================================
+    # مقارنة صلاحيات رول قبل/بعد - يرجع (صلاحيات أُضيفت, صلاحيات أُزيلت)
+    # =====================================================
+    def _diff_permissions(self, before_perms: discord.Permissions, after_perms: discord.Permissions):
+        before_dict = dict(before_perms)
+        after_dict = dict(after_perms)
+        added = [name for name, value in after_dict.items() if value and not before_dict.get(name)]
+        removed = [name for name, value in before_dict.items() if value and not after_dict.get(name)]
+        return added, removed
+
+    # =====================================================
+    # مقارنة overwrites روم قبل/بعد - يرجع أسماء الأهداف اللي تغيّرت صلاحياتهم
+    # =====================================================
+    def _diff_overwrites(self, before_channel, after_channel):
+        def _pairs(channel):
+            result = {}
+            for target, overwrite in channel.overwrites.items():
+                allow, deny = overwrite.pair()
+                result[target.id] = (target, allow.value, deny.value)
+            return result
+
+        before_map = _pairs(before_channel)
+        after_map = _pairs(after_channel)
+        changed = []
+
+        for tid, (target, allow, deny) in after_map.items():
+            old = before_map.get(tid)
+            if old is None or old[1:] != (allow, deny):
+                changed.append(target.name)
+
+        for tid, (target, _, _) in before_map.items():
+            if tid not in after_map:
+                changed.append(f"{target.name} (أُزيل)")
+
+        return changed
+
+    # =====================================================
     # Commands
     # =====================================================
     @commands.command()
@@ -190,9 +226,36 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_channel_update(self, before, after):
-        if before.name == after.name:
+        changes = []
+        if before.name != after.name:
+            changes += [("الاسم قبل", before.name, True), ("الاسم بعد", after.name, True)]
+
+        if hasattr(before, "topic") and getattr(before, "topic", None) != getattr(after, "topic", None):
+            changes.append((
+                "الموضوع",
+                f"{before.topic or 'لا يوجد'} ← {after.topic or 'لا يوجد'}"[:1024],
+                False
+            ))
+
+        if hasattr(before, "slowmode_delay") and before.slowmode_delay != after.slowmode_delay:
+            changes.append(("الإبطاء (Slowmode)", f"{before.slowmode_delay}s ← {after.slowmode_delay}s", True))
+
+        if hasattr(before, "nsfw") and before.nsfw != after.nsfw:
+            changes.append(("NSFW", "تفعيل" if after.nsfw else "إيقاف", True))
+
+        if before.overwrites != after.overwrites:
+            changed_targets = self._diff_overwrites(before, after)
+            if changed_targets:
+                changes.append(("صلاحيات مُعدّلة لـ", "، ".join(changed_targets)[:1024], False))
+
+        if not changes:
             return
-        key = f"channel_update_{after.id}_{after.name}"
+
+        key = (
+            f"channel_update_{after.id}_{after.name}_"
+            f"{getattr(after, 'topic', None)}_{getattr(after, 'slowmode_delay', None)}_"
+            f"{getattr(after, 'nsfw', None)}_{len(after.overwrites)}"
+        )
         if self._is_duplicate(key):
             return
 
@@ -203,12 +266,7 @@ class Logging(commands.Cog):
                 title="تعديل روم",
                 color=0xffff00,
                 member=entry.user,
-                fields=[
-                    ("الشخص", f"{entry.user.mention}", True),
-                    ("الآيدي", f"`{entry.user.id}`", True),
-                    ("قبل", before.name, True),
-                    ("بعد", after.name, True),
-                ]
+                fields=[("الشخص", f"{entry.user.mention}", True), ("الآيدي", f"`{entry.user.id}`", True)] + changes
             )
             await self.send_log(after.guild, embed)
 
@@ -235,20 +293,32 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_role_update(self, before, after):
-        if before.name == after.name and before.color == after.color:
+        changes = []
+        if before.name != after.name:
+            changes += [("الاسم قبل", before.name, True), ("الاسم بعد", after.name, True)]
+        if before.color != after.color:
+            changes += [("اللون قبل", str(before.color), True), ("اللون بعد", str(after.color), True)]
+        if before.hoist != after.hoist:
+            changes.append(("العرض المنفصل", "تفعيل" if after.hoist else "إيقاف", True))
+        if before.mentionable != after.mentionable:
+            changes.append(("قابل للمنشن", "تفعيل" if after.mentionable else "إيقاف", True))
+        if before.permissions != after.permissions:
+            added, removed = self._diff_permissions(before.permissions, after.permissions)
+            if added:
+                changes.append(("صلاحيات أُضيفت", "، ".join(added)[:1024], False))
+            if removed:
+                changes.append(("صلاحيات أُزيلت", "، ".join(removed)[:1024], False))
+
+        if not changes:
             return
-        key = f"role_update_{after.id}_{after.name}"
+
+        key = f"role_update_{after.id}_{after.permissions.value}_{after.name}_{after.color.value}_{after.hoist}_{after.mentionable}"
         if self._is_duplicate(key):
             return
 
         await asyncio.sleep(1)
         entry = await self._get_audit_entry(after.guild, discord.AuditLogAction.role_update, after.id)
         if entry:
-            changes = []
-            if before.name != after.name:
-                changes += [("الاسم قبل", before.name, True), ("الاسم بعد", after.name, True)]
-            if before.color != after.color:
-                changes += [("اللون قبل", str(before.color), True), ("اللون بعد", str(after.color), True)]
             embed = self._build_log_embed(
                 title="تعديل رول",
                 color=0xffff00,
@@ -689,6 +759,31 @@ class Logging(commands.Cog):
                 ]
             )
             await self.send_log(member.guild, embed)
+
+    # =====================================================
+    # تسجيل استخدام أوامر البوت (من أي كوج بالمشروع)
+    # =====================================================
+    @commands.Cog.listener()
+    async def on_command_completion(self, ctx):
+        if not ctx.guild:
+            return
+
+        key = f"cmd_used_{ctx.message.id}"
+        if self._is_duplicate(key):
+            return
+
+        embed = self._build_log_embed(
+            title="استخدام أمر",
+            color=0x3498db,
+            member=ctx.author,
+            fields=[
+                ("العضو", f"{ctx.author.mention}", True),
+                ("الآيدي", f"`{ctx.author.id}`", True),
+                ("الروم", ctx.channel.mention, True),
+                ("الأمر", f"`{ctx.message.content[:200]}`", False),
+            ]
+        )
+        await self.send_log(ctx.guild, embed)
 
 async def setup(bot):
     await bot.add_cog(Logging(bot))
