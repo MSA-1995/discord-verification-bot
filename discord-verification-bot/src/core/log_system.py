@@ -579,43 +579,26 @@ class Logging(commands.Cog):
         entry_create = await self._get_audit_entry(channel.guild, discord.AuditLogAction.webhook_create, channel.id)
         entry_delete = await self._get_audit_entry(channel.guild, discord.AuditLogAction.webhook_delete, channel.id)
         entry = entry_create or entry_delete
-        action_label = "إنشاء" if entry_create else "حذف" if entry_delete else "تعديل"
-        color = 0x00ff00 if entry_create else 0xff0000 if entry_delete else 0xffff00
-        actor = entry.user if entry else None
 
-        embed = self._build_log_embed(
-            title=f"⚠️ {action_label} ويب هوك",
-            color=color,
-            member=actor,
-            fields=[
-                ("الشخص", f"{actor.mention}" if actor else "غير معروف", True),
-                ("الروم", channel.mention, True),
-                ("الإجراء", action_label, True),
-            ]
-        )
-        await self.send_log(channel.guild, embed)
-
-    @commands.Cog.listener()
-    async def on_webhooks_update(self, channel):
-        key = f"webhook_update_{channel.id}"
-        if self._is_duplicate(key, window=10.0):
+        # لو ما لقينا entry إنشاء أو حذف = تعديل من البوت نفسه، نتجاهله
+        if not entry:
             return
 
-        await asyncio.sleep(1)
-        # نحاول نجيب من اللوج من أنشأ أو حذف الويب هوك
-        entry_create = await self._get_audit_entry(channel.guild, discord.AuditLogAction.webhook_create, channel.id)
-        entry_delete = await self._get_audit_entry(channel.guild, discord.AuditLogAction.webhook_delete, channel.id)
-        entry = entry_create or entry_delete
-        action_label = "إنشاء" if entry_create else "حذف" if entry_delete else "تعديل"
-        color = 0x00ff00 if entry_create else 0xff0000 if entry_delete else 0xffff00
-        actor = entry.user if entry else None
+        # لو البوت هو اللي أنشأ الويب هوك نتجاهله
+        if entry.user.id == self.bot.user.id:
+            return
+
+        action_label = "إنشاء" if entry_create else "حذف"
+        color = 0x00ff00 if entry_create else 0xff0000
+        actor = entry.user
 
         embed = self._build_log_embed(
             title=f"⚠️ {action_label} ويب هوك",
             color=color,
             member=actor,
             fields=[
-                ("الشخص", f"{actor.mention}" if actor else "غير معروف", True),
+                ("الشخص", f"{actor.mention}", True),
+                ("الآيدي", f"`{actor.id}`", True),
                 ("الروم", channel.mention, True),
                 ("الإجراء", action_label, True),
             ]
