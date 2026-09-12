@@ -14,7 +14,7 @@ import json
 import re
 from pathlib import Path
 from datetime import datetime, timezone
-from src.config.config_encrypted import get_discord_token, get_critical_webhook
+from src.config.config_encrypted import get_discord_token
 from src.config import channels_config
 
 logging.basicConfig(
@@ -48,7 +48,10 @@ def run_health_check():
     server.serve_forever()
 
 TOKEN = get_discord_token()
-CRITICAL_WEBHOOK = get_critical_webhook()
+# ملاحظة: كان فيه Critical Webhook قديم من تجربة سابقة غير مستخدمة حالياً.
+# حالة البوت الآن تُعرض عن طريق روم "حالة-البوت" (نظام الـ singleton/lease تحت)،
+# فتم تعطيل محاولة فك تشفيره نهائياً بدل ما يفشل ويطلع خطأ مضلل كل تشغيل.
+CRITICAL_WEBHOOK = None
 INSTANCE_ID = os.getenv("KOYEB_DEPLOYMENT_ID") or os.getenv("HOSTNAME") or str(uuid.uuid4())
 INSTANCE_STARTED_AT = time.time()
 LEASE_MARKER = "ᴹˢᴬ_BOT_SINGLETON_LEASE"
