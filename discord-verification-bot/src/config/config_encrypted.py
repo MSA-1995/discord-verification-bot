@@ -8,7 +8,16 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
 import base64
+import logging
 import os
+
+logger = logging.getLogger(__name__)
+
+# ملاحظة: هذا الـ salt ثابت ومجرد قيمة عشوائية لاشتقاق المفتاح (KDF) —
+# لا علاقة له بأي بوت أو خدمة خارجية. تم تثبيته باسم عام لأن ENCRYPTED_CRITICAL_WEBHOOK
+# أعلاه مُشفّر باستخدام هذه القيمة بالذات؛ لو غيّرتها لازم تعيد تشفير الـ webhook من جديد
+# (شغّل Fernet.generate_key() + نفس الـ KDF بالقيمة الجديدة، وشفّر الرابط من جديد).
+_WEBHOOK_KDF_SALT = b"binance_bot_salt_2026"
 
 # Token مشفر
 ENCRYPTED_TOKEN = "gAAAAABqfysAfwbggvXaHn23KSt8JRLmbp46CnYTUETrzOr80jyd8xsi70uNE6yT5YBeSKDshiemR_3hh_nobfqLkvfO6MQ859W6jne-z0Vn1GRP81V21lV62mverxEUIc46NlVeeCBcuFqJRCARfpOmsWlFDqeNRr5NVn5If-QqOWGGvnSpNsY="
@@ -21,7 +30,7 @@ ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 
 def _get_encryption_key():
     if not ENCRYPTION_KEY:
-        print("❌ ENCRYPTION_KEY is missing. Add it in Koyeb Environment Variables.")
+        logger.error("ENCRYPTION_KEY is missing. Add it in your environment variables.")
         return None
     return ENCRYPTION_KEY
 
@@ -35,7 +44,7 @@ def get_discord_token():
         decrypted = cipher.decrypt(ENCRYPTED_TOKEN.encode())
         return decrypted.decode()
     except Exception as e:
-        print(f"❌ Decryption error: {e}")
+        logger.error("Discord token decryption failed: %s", e)
         return None
 
 def get_critical_webhook():
@@ -47,7 +56,7 @@ def get_critical_webhook():
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
-            salt=b'binance_bot_salt_2026',
+            salt=_WEBHOOK_KDF_SALT,
             iterations=100000,
             backend=default_backend()
         )
@@ -55,7 +64,8 @@ def get_critical_webhook():
         fernet = Fernet(key)
         webhook = fernet.decrypt(ENCRYPTED_CRITICAL_WEBHOOK.encode()).decode()
         return webhook
-    except:
+    except Exception as e:
+        logger.error("Critical webhook decryption failed: %s", e)
         return None
 
 def get_hadith_api_key():
