@@ -788,6 +788,50 @@ class Protection(commands.Cog):
             logger.error("on_guild_role_create ban error: %s", e)
 
     # =====================================================
+    # on_webhooks_update - حماية من إنشاء ويب هوك غير مصرح
+    # =====================================================
+    @commands.Cog.listener()
+    async def on_webhooks_update(self, channel):
+        await asyncio.sleep(1)
+        entry = await self._get_audit_entry(channel.guild, discord.AuditLogAction.webhook_create, channel.id)
+        if not entry:
+            return
+
+        actor = entry.user
+        if actor.id == channel.guild.owner_id or actor.id == self.bot.user.id:
+            return
+
+        # حذف الويب هوك فوراً
+        try:
+            webhooks = await channel.webhooks()
+            for wh in webhooks:
+                if wh.user and wh.user.id == actor.id:
+                    await wh.delete(reason="🚫 Unauthorized webhook creation")
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.error("Failed to delete unauthorized webhook: %s", e)
+
+        member = channel.guild.get_member(actor.id)
+        if not member:
+            return
+
+        banned = await self._queue_ban(member, "🚫 Unauthorized webhook creation - only owner allowed")
+        if banned:
+            embed = self._build_log_embed(
+                action_type="ban",
+                title="باند | إنشاء ويب هوك",
+                member=member,
+                reason=f"أنشأ ويب هوك في: {channel.mention}",
+                extra_fields=[("الإجراء", "حذف الويب هوك + باند نهائي")]
+            )
+        else:
+            embed = self._build_ban_failed_embed(
+                member, "إنشاء ويب هوك",
+                f"أنشأ ويب هوك في: {channel.mention}"
+            )
+        await self.send_security_log(channel.guild, embed)
+        await self._dm_owner(channel.guild, f"⚠️ **{member.mention} حاول ينشئ ويب هوك!**\nالروم: {channel.mention}\nتم حذف الويب هوك وباند العضو فوراً.")
+
+    # =====================================================
     # on_guild_role_delete
     # =====================================================
     @commands.Cog.listener()
