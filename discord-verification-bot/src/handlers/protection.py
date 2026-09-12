@@ -792,6 +792,10 @@ class Protection(commands.Cog):
     # =====================================================
     @commands.Cog.listener()
     async def on_webhooks_update(self, channel):
+        key = f"webhook_ban_{channel.id}"
+        if self._is_duplicate(key, window=10.0):
+            return
+
         await asyncio.sleep(1)
 
         # نجيب آخر entry إنشاء ويب هوك بدون فلتر ID لأن target هو الويب هوك مو الروم
