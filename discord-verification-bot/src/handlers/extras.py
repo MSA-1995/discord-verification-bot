@@ -9,16 +9,18 @@ logger = logging.getLogger(__name__)
 
 from src.config import channels_config
 
-MASS_ACTION_THRESHOLD = 3
-MASS_ACTION_WINDOW = 60
+MASS_BAN_THRESHOLD = 2
+MASS_BAN_WINDOW = 20
+MASS_KICK_THRESHOLD = 3
+MASS_KICK_WINDOW = 60
 
 
 class Extras(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         # تتبع عمليات الباند/الكيك لكل مسؤول
-        self.ban_tracker: dict[int, list[float]] = defaultdict(list)
-        self.kick_tracker: dict[int, list[float]] = defaultdict(list)
+        self.ban_tracker: dict[tuple[int, int], list[float]] = defaultdict(list)
+        self.kick_tracker: dict[tuple[int, int], list[float]] = defaultdict(list)
 
     # =====================================================
     # 1. نظام الترحيب
@@ -118,20 +120,7 @@ class Extras(commands.Cog):
         if not entry or entry.user.id == self.bot.user.id:
             return
 
-        moderator_id = entry.user.id
-        now = datetime.now(timezone.utc).timestamp()
-
-        # تنظيف القديم وإضافة الجديد
-        self.ban_tracker[moderator_id] = [
-            t for t in self.ban_tracker[moderator_id]
-            if now - t < MASS_ACTION_WINDOW
-        ]
-        self.ban_tracker[moderator_id].append(now)
-
-        if len(self.ban_tracker[moderator_id]) >= MASS_ACTION_THRESHOLD:
-            count = len(self.ban_tracker[moderator_id])
-            self.ban_tracker[moderator_id].clear()
-            await self._send_mass_alert(guild, entry.user, "باند", count)
+        await self._record_mass_action(guild, entry.user, "باند", self.ban_tracker)
 
     # =====================================================
     # 4. تنبيه Mass Kick
@@ -152,24 +141,45 @@ class Extras(commands.Cog):
         if not entry or entry.user.id == self.bot.user.id:
             return
 
-        moderator_id = entry.user.id
+        await self._record_mass_action(member.guild, entry.user, "كيك", self.kick_tracker)
+
+    async def _record_mass_action(self, guild, moderator, action_type, tracker):
+        threshold = MASS_BAN_THRESHOLD if action_type == "باند" else MASS_KICK_THRESHOLD
+        window = MASS_BAN_WINDOW if action_type == "باند" else MASS_KICK_WINDOW
+        key = (guild.id, moderator.id)
         now = datetime.now(timezone.utc).timestamp()
 
-        self.kick_tracker[moderator_id] = [
-            t for t in self.kick_tracker[moderator_id]
-            if now - t < MASS_ACTION_WINDOW
+        tracker[key] = [
+            t for t in tracker[key]
+            if now - t < window
         ]
-        self.kick_tracker[moderator_id].append(now)
+        tracker[key].append(now)
 
-        if len(self.kick_tracker[moderator_id]) >= MASS_ACTION_THRESHOLD:
-            count = len(self.kick_tracker[moderator_id])
-            self.kick_tracker[moderator_id].clear()
-            await self._send_mass_alert(member.guild, entry.user, "كيك", count)
+        if len(tracker[key]) < threshold:
+            return
+
+        count = len(tracker[key])
+        tracker[key].clear()
+        await self._send_mass_alert(guild, moderator, action_type, count, threshold, window)
+
+        if action_type != "باند":
+            return
+        if moderator.id == self.bot.user.id or moderator.id == guild.owner_id:
+            return
+
+        member = guild.get_member(moderator.id)
+        if not member:
+            return
+
+        try:
+            await member.ban(reason=f"🚫 Mass Ban: {count} bans within {window} seconds", delete_message_days=1)
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.error("Failed to ban mass-ban moderator %s: %s", moderator.id, e)
 
     # =====================================================
     # دالة إرسال تنبيه Mass Action
     # =====================================================
-    async def _send_mass_alert(self, guild, moderator, action_type, count):
+    async def _send_mass_alert(self, guild, moderator, action_type, count, threshold, window):
         embed = discord.Embed(
             title=f"🚨 تحذير | Mass {action_type}",
             description=f"**{moderator}** قام بعمليات {action_type} متعددة في وقت قصير!",
@@ -179,7 +189,7 @@ class Extras(commands.Cog):
         embed.add_field(name="المسؤول", value=f"{moderator.mention}", inline=True)
         embed.add_field(name="الآيدي", value=f"`{moderator.id}`", inline=True)
         embed.add_field(name="النوع", value=f"Mass {action_type}", inline=True)
-        embed.add_field(name="العدد", value=f"{MASS_ACTION_THRESHOLD}+ في {MASS_ACTION_WINDOW} ثانية", inline=True)
+        embed.add_field(name="العدد", value=f"{threshold}+ في {window} ثانية", inline=True)
         embed.set_footer(text="نظام الحماية | ᴹˢᴬ")
 
         # إرسال في اللوقات
@@ -200,7 +210,7 @@ class Extras(commands.Cog):
                         f"**سيرفر:** {guild.name}\n"
                         f"**المسؤول:** {moderator} (`{moderator.id}`)\n"
                         f"قام بعمليات {action_type} متعددة في وقت قصير!\n"
-                        f"**{MASS_ACTION_THRESHOLD}+ عمليات في {MASS_ACTION_WINDOW} ثانية**"
+                        f"**{threshold}+ عمليات في {window} ثانية**"
                     ),
                     color=0xff0000,
                     timestamp=datetime.now(timezone.utc)
