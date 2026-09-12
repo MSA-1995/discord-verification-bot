@@ -137,6 +137,7 @@ class AzkarSystem(commands.Cog):
         self.bot = bot
         self._next_kind = "quran"
         self._sending = False
+        self._last_sent: float = 0.0
         self.azkar_task.start()
 
     def cog_unload(self):
@@ -144,9 +145,15 @@ class AzkarSystem(commands.Cog):
 
     @tasks.loop(minutes=AZKAR_INTERVAL_MINUTES)
     async def azkar_task(self):
+        import time
+        now = time.monotonic()
+        # منع الإرسال لو مضى أقل من 80% من الفترة المحددة (حماية من reconnect)
+        if self._last_sent and now - self._last_sent < AZKAR_INTERVAL_MINUTES * 60 * 0.8:
+            return
         if self._sending:
             return
         self._sending = True
+        self._last_sent = now
         try:
             print(f"🕌 Azkar task running... (every {AZKAR_INTERVAL_MINUTES} minutes)")
             for guild in self.bot.guilds:
@@ -180,8 +187,9 @@ class AzkarSystem(commands.Cog):
     @azkar_task.before_loop
     async def before_azkar_task(self):
         await self.bot.wait_until_ready()
-        print(f"⏳ Azkar system will start in 90 seconds...")
-        await asyncio.sleep(90)
+        # ننتظر كامل الفترة قبل أول إرسال عشان ما يُرسل فور التشغيل/الـ reconnect
+        print(f"⏳ Azkar system will start in {AZKAR_INTERVAL_MINUTES} minutes...")
+        await asyncio.sleep(AZKAR_INTERVAL_MINUTES * 60)
         print(f"✅ Azkar task started! Will send every {AZKAR_INTERVAL_MINUTES} minutes.")
 
     @azkar_task.error
