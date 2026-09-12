@@ -293,6 +293,12 @@ class Logging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_role_update(self, before, after):
+        # لو صلاحية administrator أُضيفت أو أُزيلت = Protection تتعامل معها، نتجاهل
+        gained_admin = after.permissions.administrator and not before.permissions.administrator
+        lost_admin = before.permissions.administrator and not after.permissions.administrator
+        if gained_admin or lost_admin:
+            return
+
         changes = []
         if before.name != after.name:
             changes += [("الاسم قبل", before.name, True), ("الاسم بعد", after.name, True)]
