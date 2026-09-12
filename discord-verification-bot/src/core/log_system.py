@@ -761,29 +761,59 @@ class Logging(commands.Cog):
             await self.send_log(member.guild, embed)
 
     # =====================================================
-    # تسجيل استخدام أوامر البوت (من أي كوج بالمشروع)
+    # تسجيل استخدام أوامر البوت (نجحت أو فشلت) - من أي كوج بالمشروع
     # =====================================================
     @commands.Cog.listener()
     async def on_command_completion(self, ctx):
         if not ctx.guild:
             return
+        await self._log_command_attempt(ctx, success=True)
 
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx, error):
+        if not ctx.guild:
+            return
+        # حد كتب حاجة مو أمر حقيقي أصلاً (غلطة كتابة) - تجاهل، مش محاولة فعلية
+        if isinstance(error, commands.CommandNotFound):
+            return
+        await self._log_command_attempt(ctx, success=False, error=error)
+
+    async def _log_command_attempt(self, ctx, success: bool, error: Exception | None = None):
         key = f"cmd_used_{ctx.message.id}"
         if self._is_duplicate(key):
             return
 
+        if success:
+            result_text = "✅ نجح"
+            color = 0x3498db
+        else:
+            result_text = f"❌ فشل — {self._format_command_error(error)}"
+            color = 0xff0000
+
         embed = self._build_log_embed(
             title="استخدام أمر",
-            color=0x3498db,
+            color=color,
             member=ctx.author,
             fields=[
                 ("العضو", f"{ctx.author.mention}", True),
                 ("الآيدي", f"`{ctx.author.id}`", True),
                 ("الروم", ctx.channel.mention, True),
                 ("الأمر", f"`{ctx.message.content[:200]}`", False),
+                ("النتيجة", result_text, False),
             ]
         )
         await self.send_log(ctx.guild, embed)
+
+    def _format_command_error(self, error: Exception) -> str:
+        if isinstance(error, commands.CheckFailure):
+            return "ما عنده الصلاحية المطلوبة"
+        if isinstance(error, commands.MissingRequiredArgument):
+            return f"ناقص معطى: `{error.param.name}`"
+        if isinstance(error, commands.BadArgument):
+            return "معطى غير صحيح"
+        if isinstance(error, commands.CommandOnCooldown):
+            return f"Cooldown - حاول بعد {error.retry_after:.0f} ثانية"
+        return (str(error) or type(error).__name__)[:200]
 
 async def setup(bot):
     await bot.add_cog(Logging(bot))
